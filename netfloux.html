@@ -1,0 +1,4158 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Netfloux — devine la suite</title>
+<meta name="theme-color" content="#0a0607">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+
+  /* ================================================================
+     PLAN DU FICHIER — pour t'y retrouver rapidement :
+
+       1. <style>  — toute l'apparence du site (couleurs, tailles, mise en page)
+       2. <body>   — le contenu HTML des 3 écrans (accueil / quiz / fin)
+       3. <script> — la logique. Tout en haut du script se trouve la
+                      "ZONE À MODIFIER" : c'est LE seul endroit où tu as
+                      normalement besoin d'aller pour changer tes questions,
+                      tes vidéos et tes messages.
+
+     Si tu veux juste changer une couleur, une taille de texte ou un espacement,
+     cherche la variable ou la règle correspondante ci-dessous : chaque bloc
+     est commenté pour expliquer à quoi il sert.
+  ================================================================ */
+
+  /* Angle du dégradé doré qui tourne autour de la carte en 1ère place
+     (déclaré ici pour pouvoir l'animer — voir ".rank-slot.gold" plus bas). */
+  @property --gold-angle{ syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+
+  /* ============================================================
+     PALETTE & VARIABLES — change une valeur ici et elle s'applique
+     partout sur le site d'un coup (c'est le seul endroit à toucher
+     pour changer les couleurs globalement).
+  ============================================================ */
+  :root{
+    --surface: #1d1218;        /* fond des cartes (vidéo, boutons de réponse) */
+    --surface-2: #261621;      /* fond au survol/hover, légèrement plus clair */
+    --border: rgba(255,255,255,0.09);        /* liseré discret autour des cartes */
+    --border-strong: rgba(255,255,255,0.18); /* liseré plus visible (survol, focus) */
+    --text: #f5ecee;           /* texte principal (presque blanc) */
+    --text-dim: #ab9096;       /* texte secondaire, un peu estompé */
+    --text-faint: #71595e;     /* texte très discret (mentions, placeholders) */
+    --red: #ff2e4d;            /* couleur d'accent principale du site */
+    --red-dim: #4a1420;        /* fond très sombre derrière les badges rouges */
+    --amber: #ffb020;          /* utilisé si besoin d'un 2e accent (non essentiel) */
+    --green: #4ad991;          /* couleur "bonne réponse" */
+    --font-display: 'Bebas Neue', sans-serif;  /* police du logo NETFLOUX et des titres de fin */
+    --font-body: 'Sora', sans-serif;           /* police de tout le reste du texte */
+  }
+
+  *{ box-sizing:border-box; }
+
+  /* Le site tient toujours dans exactement un écran, jamais besoin de scroller
+     la page. Seule la liste de messages du chat (plus bas) défile en interne,
+     comme un vrai chat en direct. "100dvh" est une unité de hauteur d'écran plus
+     fiable que "100vh" sur mobile (elle s'ajuste quand la barre du navigateur
+     apparaît/disparaît) ; "100vh" juste avant sert de solution de secours pour
+     les très vieux navigateurs qui ne connaissent pas "dvh". */
+  html, body{ margin:0; padding:0; height:100%; overflow:hidden; }
+  body{
+    /* 2 fonds superposés : de fines lignes horizontales (effet "vieille télé")
+       + un dégradé qui éclaire légèrement le haut de l'écran, façon salle de
+       cinéma sombre. Change les couleurs du dégradé pour changer l'ambiance. */
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 3px),
+      radial-gradient(ellipse 900px 520px at 50% -8%, #35141f 0%, #170d12 50%, #0a0607 100%);
+    color: var(--text);
+    font-family: var(--font-body);
+    height: 100vh;
+    height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overflow: hidden;
+  }
+  button{ font-family: inherit; }
+  code{ font-family: monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+
+  a{ color: inherit; }
+  :focus-visible{ outline: 2px solid var(--red); outline-offset: 3px; border-radius: 6px; }
+
+  /* Colonne centrale qui contient tout le site. max-width l'empêche de
+     s'étirer bêtement sur un grand écran d'ordinateur. */
+  .stage{
+    max-width: 460px;
+    margin: 0 auto;
+    height: 100%;
+    overflow: hidden;
+    padding: clamp(14px,4dvh,26px) 18px clamp(10px,3dvh,20px);
+    display:flex;
+    flex-direction:column;
+  }
+
+  /* ============================================================
+     SCREENS
+  ============================================================ */
+  .screen{ display:none; flex-direction:column; min-height:0; overflow:hidden; }
+  .screen.active{ display:flex; flex:1; min-height:0; }
+
+  @media (prefers-reduced-motion: no-preference){
+    .screen.active{ animation: screenIn 0.5s ease both; }
+  }
+  @keyframes screenIn{ from{ opacity:0; transform: translateY(10px); } to{ opacity:1; transform:none; } }
+
+  /* ============================================================
+     SHARED BITS: badges, buttons
+  ============================================================ */
+  .badge{
+    display:inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--red);
+    background: var(--red-dim);
+    padding: 5px 11px;
+    border-radius: 20px;
+    flex-shrink:0;
+  }
+
+  .badge b{ margin-left:2px; font-weight:600; opacity:0.7; }
+
+  .btn-primary{
+    background: var(--red);
+    color: #fff;
+    border: none;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 16px;
+    padding: 15px 22px;
+    border-radius: 12px;
+    cursor: pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 8px;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .btn-primary:hover{ background:#ff4763; }
+  .btn-primary:active{ transform: scale(0.97); }
+  .btn-primary:disabled{ opacity:0.4; cursor: default; transform:none; }
+
+  .btn-ghost{
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border-strong);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 11px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .btn-ghost:hover{ color: var(--text); border-color: var(--text-dim); }
+
+  /* ============================================================
+     LANDING
+  ============================================================ */
+  #screen-start{ justify-content:center; align-items:center; text-align:center; gap: clamp(10px,2dvh,16px); }
+  .logo-mark{
+    font-family: var(--font-display);
+    font-size: clamp(46px, 15vh, 72px);
+    letter-spacing: 0.02em;
+    color: var(--red);
+    line-height: 1;
+    margin:0;
+    text-shadow: 0 0 50px rgba(255,46,77,0.4);
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .logo-mark{ animation: logoIn 0.9s cubic-bezier(.2,.8,.2,1) both; }
+    .landing-hook{ animation: fadeUp 0.6s ease 0.35s both; }
+    .landing-sub{ animation: fadeUp 0.6s ease 0.5s both; }
+    #start-btn{ animation: fadeUp 0.6s ease 0.65s both; }
+  }
+  @keyframes logoIn{ from{ opacity:0; transform: scale(0.85); letter-spacing: 0.3em; } to{ opacity:1; transform:none; letter-spacing:0.02em; } }
+  @keyframes fadeUp{ from{ opacity:0; transform: translateY(8px); } to{ opacity:1; transform:none; } }
+
+  .landing-hook{ font-size: clamp(14px,2.2dvh,17px); font-weight: 600; max-width: 320px; line-height:1.5; margin:0; }
+  .landing-sub{ font-size: 13px; color: var(--text-dim); margin:0 0 6px; max-width: 320px; line-height:1.55; }
+  #start-btn{ width:100%; max-width: 260px; margin-top: 8px; }
+  .landing-foot{ font-size: 11px; color: var(--text-faint); margin-top: clamp(14px,3dvh,30px); }
+
+  /* ============================================================
+     QUIZ SCREEN — comment l'espace vertical est partagé :
+     la ligne du haut, le titre, les 4 réponses et le bouton ont tous
+     une taille fixe (ils ne bougent jamais). La vidéo et le chat sont
+     les 2 seuls blocs "élastiques" : ce sont eux qui s'ajustent pour
+     que tout tienne pile dans l'écran, quel que soit le téléphone.
+  ============================================================ */
+  #screen-quiz.active{ gap: clamp(6px, 1.2dvh, 10px); }
+
+  .quiz-topline{ flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap: 8px; }
+  .quiz-brandmark{ font-family: var(--font-display); font-size: 14px; letter-spacing:0.04em; color: var(--text-faint); }
+
+  /* Le cadre vidéo s'adapte tout seul au format de CHAQUE vidéo (vertical, 4:3, 16:9...) : dès
+     qu'une vidéo est chargée, le script lit sa largeur et sa hauteur et règle "--vr" (largeur
+     divisée par hauteur). Le cadre prend alors la plus grande taille possible, dans 2 limites :
+       - la largeur : presque tout l'écran (la vidéo dépasse de "--bleed" de chaque côté de la colonne) ;
+       - la hauteur maximale "--vmax" : ce qui reste de l'écran une fois les autres éléments casés
+         (titre, réponses, bouton, et un chat encore lisible), plafonné à 270px.
+     Une vidéo large (16:9) occupe donc presque toute la largeur ; une vidéo plus haute (4:3, vertical)
+     est limitée par la hauteur. Jamais de débordement, donc jamais de barre de défilement.
+     Plus le chat te semble petit, plus tu peux augmenter le "510px" ci-dessous ; plus la vidéo te
+     semble petite, plus tu peux le diminuer (ex. 480px). */
+  .video-stage{
+    --vr: 0.5625;                       /* 9/16 tant que le format de la vidéo n'est pas connu */
+    --vmax: clamp(130px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 510px), 270px);
+    --bleed: 10px;                      /* la vidéo peut déborder de 10px de chaque côté de la colonne */
+    position:relative;
+    flex: 0 1 auto;
+    align-self:center;
+    width: min(calc(100% + 2 * var(--bleed)), calc(var(--vmax) * var(--vr)));
+    aspect-ratio: var(--vr);
+  }
+  /* l'écran du quiz laisse déborder la vidéo (le cadre extérieur ".stage" garde le tout à l'écran) */
+  #screen-quiz.screen{ overflow: visible; }
+  .video-wrap{
+    position:relative;
+    width:100%;
+    height:100%;
+    background: var(--surface);
+    border-radius: 16px;
+    overflow:hidden;
+    border: 1px solid var(--border);
+    cursor:pointer;
+    box-shadow: 0 0 46px -6px rgba(255,46,77,0.4), 0 0 90px 4px rgba(255,46,77,0.12); /* lueur autour de l'écran */
+  }
+  .video-wrap video{ width:100%; height:100%; object-fit:contain; display:block; background:#0a0607; }
+
+  /* Message affiché à la place de la vidéo tant que son fichier (déposé à côté
+     de netfloux.html) n'est pas trouvé, ou s'il ne charge pas. */
+  .video-fallback{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+    color: var(--text-faint);
+    text-align:center;
+    padding: 16px;
+  }
+  .video-fallback.hidden{ display:none; }
+  .video-fallback svg{ width:28px; height:28px; opacity:0.7; flex-shrink:0; }
+  .video-fallback p{ font-size: 11.5px; margin:0; line-height:1.6; }
+  .video-fallback code{ font-size: 11px; }
+
+  .video-tag{
+    position:absolute; top:10px; left:10px;
+    display:flex; align-items:center; gap:5px;
+    background: rgba(12,7,9,0.55);
+    backdrop-filter: blur(6px);
+    padding: 5px 10px 5px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .video-brandbug{
+    position:absolute; bottom:8px; right:10px;
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing:0.03em;
+    color: rgba(245,236,238,0.55);
+    text-shadow: 0 0 8px rgba(0,0,0,0.6);
+  }
+  /* ===== Sous la vidéo : une seule ligne, qui change selon le moment ===== */
+  .video-ctl{ flex-shrink:0; display:flex; align-items:center; min-height:30px; }
+
+  /* Avant sa réponse : lecture/pause + une barre pour se déplacer dans l'extrait. La barre va de
+     0 jusqu'à la limite (stopAt) : elle peut revenir en arrière et avancer, mais ne peut jamais
+     voir ce qui vient après (c'est là que se trouve la réponse). */
+  .scrubber{ display:flex; align-items:center; gap:10px; width:100%; }
+  .scrub-play{
+    flex-shrink:0; width:30px; height:30px; padding:0; border-radius:50%;
+    display:grid; place-items:center;
+    background: rgba(255,46,77,0.14); border: 1px solid rgba(255,46,77,0.55); color: var(--text);
+    cursor:pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .scrub-play svg{ width:13px; height:13px; fill: currentColor; }
+  .scrub-play .ic-pause{ display:none; }
+  .scrub-play.playing .ic-play{ display:none; }
+  .scrub-play.playing .ic-pause{ display:block; }
+  .scrub{
+    --p: 0%; /* partie déjà vue (réglée par le script) */
+    -webkit-appearance:none; appearance:none;
+    flex:1; min-width:0; height:30px; margin:0; padding:0;
+    background:transparent; cursor:pointer; touch-action:none;
+  }
+  .scrub::-webkit-slider-runnable-track{ height:5px; border-radius:5px; background: linear-gradient(to right, var(--red) var(--p), rgba(255,255,255,0.18) var(--p)); }
+  .scrub::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:16px; height:16px; margin-top:-5.5px; border-radius:50%; background:#fff; border:2px solid var(--red); box-shadow: 0 0 10px rgba(255,46,77,0.7); }
+  .scrub::-moz-range-track{ height:5px; border-radius:5px; background: rgba(255,255,255,0.18); }
+  .scrub::-moz-range-progress{ height:5px; border-radius:5px; background: var(--red); }
+  .scrub::-moz-range-thumb{ width:12px; height:12px; border-radius:50%; background:#fff; border:2px solid var(--red); box-shadow: 0 0 10px rgba(255,46,77,0.7); }
+  .scrub:focus-visible{ outline: 2px solid var(--red); outline-offset: 2px; }
+  .scrub-time{ flex-shrink:0; min-width:66px; text-align:right; font-size:11px; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+
+  /* Après sa réponse : la ligne devient un message qui annonce la suite de la vidéo. */
+  .answer-banner{
+    flex:1; height:30px;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    border-radius:15px;
+    border: 1px solid rgba(255,46,77,0.5);
+    background: linear-gradient(90deg, rgba(255,46,77,0.05), rgba(255,46,77,0.18), rgba(255,46,77,0.05));
+    font-size:12.5px; font-weight:600; color: var(--text);
+  }
+  .answer-banner svg{ width:12px; height:12px; fill: var(--red); }
+  @media (prefers-reduced-motion: no-preference){
+    .answer-banner{ animation: bannerIn 0.5s cubic-bezier(.2,1.2,.3,1) both; }
+    .answer-banner svg{ animation: dotPulse 1.6s ease-in-out infinite; }
+  }
+  @keyframes bannerIn{ from{ opacity:0; translate: 0 6px; scale:0.96; } to{ opacity:1; translate: 0 0; scale:1; } }
+
+  /* "Revoir" : apparaît au centre de la vidéo quand l'extrait est terminé. */
+  .video-replay{
+    position:absolute; inset:0; margin:auto;
+    width:54px; height:54px; border-radius:50%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    border: 1px solid rgba(255,255,255,0.28);
+    background: rgba(10,6,7,0.62);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    color:#fff; font-family: var(--font-body); font-size:9.5px; font-weight:600;
+    cursor:pointer; z-index:3;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .video-replay svg{ width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .video-replay:hover{ border-color: var(--red); }
+  @media (prefers-reduced-motion: no-preference){
+    .video-replay{ animation: replayIn 0.3s ease both; }
+  }
+  @keyframes replayIn{ from{ opacity:0; scale:0.8; } to{ opacity:1; scale:1; } }
+
+  /* Une fois qu'elle a répondu, ce sont les contrôles natifs de la vidéo qui prennent le relais. */
+  .video-stage.answered .video-tag,
+  .video-stage.answered .video-brandbug,
+  .video-stage.free .video-tag,
+  .video-stage.free .video-brandbug{ display:none; }
+  .video-stage.answered .video-wrap,
+  .video-stage.free .video-wrap{ cursor:default; }
+
+  .live-dot{ width:6px; height:6px; border-radius:50%; background: var(--red); display:inline-block; box-shadow: 0 0 6px 1px var(--red); }
+  @media (prefers-reduced-motion: no-preference){
+    .live-dot.pulsing{ animation: dotPulse 1.6s ease-in-out infinite; }
+  }
+  @keyframes dotPulse{ 0%,100%{ opacity:1; } 50%{ opacity:0.35; } }
+
+  /* ============================================================
+     INVITATION À ACTIVER LE SON — une bulle collée à la vidéo : elle occupe
+     l'espace vide à droite de l'écran vertical et la désigne. Elle reste
+     affichée tant que la vidéo est muette (un navigateur démarre toujours une
+     vidéo sans son). En appuyant dessus on active le son ET un petit bip est
+     joué : un site ne peut pas lire le volume du téléphone, c'est donc
+     elle qui vérifie qu'elle entend.
+  ============================================================ */
+  .sound-nudge{
+    position:absolute;
+    left: calc(100% + 12px);
+    top:0; bottom:0; margin: auto 0; height: fit-content;
+    display:flex; align-items:center; gap:8px;
+    width: max-content; max-width: 126px;
+    padding: 7px 9px 7px 7px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,46,77,0.6);
+    background: #2a131b;
+    color: var(--text);
+    font-family: var(--font-body);
+    text-align:left;
+    cursor:pointer;
+    z-index:4;
+    box-shadow: 0 0 18px rgba(255,46,77,0.28);
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* la pointe qui désigne la vidéo */
+  .sound-nudge::before{
+    content:"";
+    position:absolute; left:-6px; top:50%;
+    width:10px; height:10px; margin-top:-5px;
+    background: #2a131b;
+    border-left: 1px solid rgba(255,46,77,0.6);
+    border-bottom: 1px solid rgba(255,46,77,0.6);
+    transform: rotate(45deg);
+  }
+  .sn-icon{
+    position:relative; flex-shrink:0;
+    width:26px; height:26px; border-radius:50%;
+    display:grid; place-items:center;
+    background: var(--red); color:#fff;
+  }
+  .sn-icon svg{ width:16px; height:16px; }
+  .sn-icon svg path{ fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .sn-icon svg .sn-speaker{ fill:currentColor; stroke-width:1.2; }
+  .sn-check{ display:none; }
+  .sn-text{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .sn-title{ font-size:12px; font-weight:700; line-height:1.15; text-wrap:balance; }
+  .sn-sub{ font-size:10px; color: var(--text-dim); line-height:1.2; text-wrap:balance; }
+  /* après l'appui : confirmation en vert */
+  .sound-nudge.done{ border-color: rgba(74,217,145,0.7); box-shadow: 0 0 18px rgba(74,217,145,0.22); }
+  .sound-nudge.done::before{ border-color: rgba(74,217,145,0.7); }
+  .sound-nudge.done .sn-icon{ background: var(--green); color:#062414; }
+  .sound-nudge.done .sn-wave{ display:none; }
+  .sound-nudge.done .sn-check{ display:block; }
+  @media (prefers-reduced-motion: no-preference){
+    /* pour attirer l'oeil : un léger mouvement vers la vidéo, des ondes qui pulsent
+       et un anneau qui s'élargit autour du haut-parleur */
+    .sound-nudge{ animation: snIn 0.4s ease both; }
+    .sound-nudge:not(.done){ animation: snIn 0.4s ease both, snNudge 1.8s ease-in-out 0.6s infinite; }
+    .sound-nudge:not(.done) .sn-icon::after{
+      content:""; position:absolute; inset:0; border-radius:50%;
+      border: 2px solid var(--red);
+      animation: snRing 1.8s ease-out infinite;
+    }
+    .sound-nudge:not(.done) .sn-wave{ animation: snWave 1.4s ease-in-out infinite; }
+    .sound-nudge:not(.done) .sn-w2{ animation-delay: 0.25s; }
+  }
+  @keyframes snIn{ from{ opacity:0; scale:0.9; } to{ opacity:1; scale:1; } }
+  @keyframes snNudge{ 0%,100%{ translate: 0 0; } 50%{ translate: -4px 0; } }
+  @keyframes snRing{ 0%{ transform: scale(1); opacity:0.7; } 100%{ transform: scale(1.7); opacity:0; } }
+  @keyframes snWave{ 0%,100%{ opacity:0.25; } 50%{ opacity:1; } }
+  /* vidéo large (4:3, 16:9...) : il n'y a plus de place à côté d'elle, la bulle passe
+     en bas à gauche, sur la vidéo (la classe "wide" est posée par le script) */
+  .video-stage.wide .sound-nudge{ left:8px; top:auto; bottom:12px; margin:0; max-width:150px; }
+  .video-stage.wide .sound-nudge::before{ display:none; }
+
+  .q-title{ flex-shrink:0; font-size: clamp(15px, 2.6dvh, 19px); font-weight:700; margin: 2px 0 0; line-height:1.35; }
+
+  /* Les réponses : toujours 2 colonnes. Avec 4 propositions ça fait une
+     grille 2x2 ; avec seulement 2 (voir "binary" plus bas) ça fait une
+     seule ligne, présentée comme un duel. */
+  .options-grid{
+    position:relative;
+    flex-shrink:0;
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(6px,1.4dvh,9px);
+  }
+  .opt-btn{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: clamp(8px,1.4dvh,12px) 10px;
+    color: var(--text);
+    font-size: clamp(11px,1.8dvh,12.5px);
+    font-weight: 500;
+    line-height:1.35;
+    text-align:left;
+    cursor:pointer;
+    min-height: clamp(48px, 8dvh, 64px);
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    transition: border-color 0.15s ease, background 0.15s ease, opacity 0.2s ease;
+  }
+  .opt-btn:hover:not(:disabled){ border-color: var(--border-strong); background: var(--surface-2); }
+  .opt-btn:active:not(:disabled){ transform: scale(0.98); }
+  .opt-letter{ font-family: var(--font-display); font-size: 16px; color: var(--red); letter-spacing:0.02em; }
+  .opt-btn:disabled{ cursor:default; }
+  .opt-btn.dimmed{ opacity: 0.38; }
+  .opt-btn.is-selected{ border-color: var(--text-dim); }
+  .opt-btn.is-correct{ border-color: var(--green); background: rgba(74,217,145,0.08); opacity:1; }
+  .opt-btn.is-correct .opt-letter{ color: var(--green); }
+  .opt-btn.is-incorrect{ border-color: var(--red); background: rgba(255,46,77,0.08); opacity:1; }
+  @media (prefers-reduced-motion: no-preference){
+    .opt-btn.is-correct{ animation: pulseGood 0.6s ease; }
+    .opt-btn.is-incorrect{ animation: pulseBad 0.6s ease; }
+  }
+  @keyframes pulseGood{ 0%{ box-shadow:0 0 0 0 rgba(74,217,145,0.55); } 100%{ box-shadow:0 0 0 12px rgba(74,217,145,0); } }
+  @keyframes pulseBad{ 0%{ box-shadow:0 0 0 0 rgba(255,46,77,0.55); } 100%{ box-shadow:0 0 0 12px rgba(255,46,77,0); } }
+
+  /* Question à 2 choix (ex: épisode 6) : les 2 boutons deviennent plus
+     grands/centrés, avec un badge "VS" superposé entre les deux — ajoutée
+     automatiquement par le script quand une question n'a que 2 options. */
+  .options-grid.binary .opt-btn{
+    min-height: clamp(64px, 10dvh, 96px);
+    align-items:center;
+    text-align:center;
+    justify-content:center;
+  }
+  .options-grid.binary .opt-letter{ font-size: 30px; margin-bottom:2px; }
+  .vs-badge{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:30px; height:30px; border-radius:50%;
+    background: var(--red); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--font-display); font-size:12px; letter-spacing:0.02em;
+    box-shadow: 0 0 0 4px #170d12, 0 0 20px rgba(255,46,77,0.5);
+    z-index:2;
+    pointer-events:none;
+  }
+
+  /* ============================================================
+     QUESTION "CLASSEMENT" — remplace le bloc vidéo.
+     Deux blocs 2x2 côte à côte : à GAUCHE le classement ("rank-slots", les
+     4 cases numérotées — la case 1 = la 1ère place, en haut à gauche), à
+     DROITE les cartes à placer ("rank-pool", dans un ordre mélangé). Côte à
+     côte plutôt qu'empilés pour que tout tienne dans l'écran sans scroller.
+     Toutes les cartes sont au format PORTRAIT 3:4 : si une image est fournie
+     (voir "image" dans la config), elle remplit la carte ; sinon la carte
+     affiche simplement son nom.
+  ============================================================ */
+  .rank-stage{
+    position:relative;
+    flex: 0 1 auto;
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 16px;
+    padding-top: 14px; /* place au-dessus de la 1ère case pour la couronne */
+  }
+  .rank-stage::before{ /* fine séparation entre le classement et les cartes à placer */
+    content:"";
+    position:absolute; left:50%; top:22px; bottom:4px; width:1px;
+    background: var(--border);
+  }
+  .rank-slots, .rank-pool{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  /* petite secousse des cartes mal placées quand l'essai est raté */
+  .rank-slots.shake .rank-slot:not(.correct){ border-color: var(--red); }
+  @media (prefers-reduced-motion: no-preference){
+    .rank-slots.shake .rank-slot:not(.correct){ animation: shake 0.42s ease; }
+  }
+  @keyframes shake{
+    0%,100%{ transform: translateX(0); }
+    20%{ transform: translateX(-7px); }
+    40%{ transform: translateX(7px); }
+    60%{ transform: translateX(-4px); }
+    80%{ transform: translateX(4px); }
+  }
+  .rank-slot, .rank-pool-cell{
+    position:relative;
+    aspect-ratio: 3 / 4;
+    border-radius: 12px;
+  }
+  .rank-slot{
+    border: 1px dashed var(--border-strong);
+    background: rgba(255,255,255,0.02);
+  }
+  .rank-pool-cell{ background: rgba(255,255,255,0.015); }
+
+  /* numéro de la case : grand et discret quand elle est vide, petite
+     pastille dans le coin quand une carte est posée dessus */
+  .rank-slot-num{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--font-display);
+    font-size: clamp(26px, 5dvh, 38px);
+    color: rgba(255,255,255,0.14);
+    pointer-events:none;
+    z-index:2;
+  }
+  .rank-slot.filled .rank-slot-num{
+    inset:auto; top:4px; left:4px;
+    width:19px; height:19px; border-radius:50%;
+    background: rgba(10,6,7,0.72);
+    font-size:12px; color:#fff;
+  }
+  .rank-slot.filled{ border-style:solid; border-color:var(--border); background:transparent; }
+  /* carte bien placée → vert */
+  .rank-slot.correct{ border-color: var(--green); box-shadow: 0 0 0 1px var(--green); }
+  .rank-slot.correct .rank-slot-num{ background: var(--green); color:#062414; }
+  .rank-slot.incorrect{ border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+  /* survolé par une carte en cours de glissement */
+  .rank-slot.drop-hover{ border-color: var(--red); border-style:solid; background: rgba(255,46,77,0.12); }
+  @media (prefers-reduced-motion: no-preference){
+    .rank-slot.correct.fresh{ animation: pulseGood 0.6s ease; }
+    .rank-slot.incorrect.fresh{ animation: pulseBad 0.6s ease; }
+  }
+  .rank-pool{ border-radius: 14px; transition: background 0.15s ease; }
+  .rank-pool.drop-hover{ background: rgba(255,46,77,0.06); }
+
+  /* La carte elle-même (identique dans la zone de droite et dans une case) */
+  .rank-card{
+    position:absolute; inset:0;
+    overflow:hidden;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap: 5px;
+    cursor:grab;
+    color: var(--text);
+    font-family: var(--font-body);
+    transition: border-color 0.15s ease, opacity 0.2s ease;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .rank-card:hover{ border-color: var(--border-strong); }
+  .rank-card.dragging-source{ opacity:0.2; }
+  .rank-card img{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    object-fit:cover;
+    pointer-events:none;
+    -webkit-user-drag:none;
+  }
+  .rank-card .rank-icon{ display:flex; width:46%; }
+  .rank-card .rank-icon svg{ width:100%; height:auto; }
+  .rank-label{
+    position:relative; z-index:1;
+    padding: 0 4px;
+    text-align:center;
+    font-weight:600;
+    /* la taille suit la largeur de la carte (≈ 13 % de sa largeur) pour que même
+       un mot long comme "Candaulisme" tienne sans être coupé en deux */
+    font-size: clamp(9px, calc((min(100vw, 460px) - 64px) * 0.0325), 14px);
+    line-height:1.25;
+    overflow-wrap:anywhere;
+  }
+  /* avec une image : le nom passe en bandeau sombre en bas de la carte */
+  .rank-card.has-image .rank-label{
+    position:absolute; left:0; right:0; bottom:0;
+    padding: 16px 4px 5px;
+    background: linear-gradient(to top, rgba(10,6,7,0.88), rgba(10,6,7,0));
+    font-size: clamp(9.5px, 1.6dvh, 11.5px);
+  }
+  /* clone qui suit le doigt pendant le glissement (doit rester APRÈS
+     .rank-card pour en écraser la position) */
+  .rank-ghost{
+    position:fixed; inset:auto;
+    z-index:999;
+    pointer-events:none;
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+    cursor:grabbing;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.5);
+    transform: scale(1.06) rotate(-2deg);
+  }
+
+  /* ============================================================
+     1ÈRE PLACE TROUVÉE — mise en scène dorée : bordure dorée qui tourne
+     lentement autour de la carte, lueur qui respire, reflet de lumière qui
+     balaie la carte, étincelles, et une couronne qui tombe dessus.
+     (Toutes les animations sont coupées si "réduire les animations" est
+     activé sur le téléphone : il reste alors la bordure, la lueur et la
+     couronne, fixes.)
+  ============================================================ */
+  .rank-slot.correct.gold{
+    --gold-angle: 0deg;
+    border-color: #f2c230;
+    box-shadow: 0 0 16px rgba(255,200,60,0.5), 0 0 40px rgba(255,170,0,0.2);
+  }
+  /* bordure en dégradé conique (n'est utilisée que si le navigateur sait
+     "découper" l'intérieur d'un dégradé ; sinon il reste la bordure unie) */
+  @supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)){
+    .rank-slot.correct.gold{ border-color: transparent; }
+    .rank-slot.correct.gold::before{
+      content:"";
+      position:absolute; inset:-3px;
+      border-radius: 15px;
+      padding: 3px;
+      background: conic-gradient(from var(--gold-angle), #ffe58a, #b8860b 18%, #fff6c8 32%, #d4a017 50%, #ffe58a 68%, #9a6a00 84%, #ffe58a);
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      mask-composite: exclude;
+      pointer-events:none;
+      z-index:5;
+    }
+  }
+  .rank-slot.correct.gold .rank-card{
+    border-color: rgba(255,220,120,0.55);
+    background: radial-gradient(120% 90% at 50% 0%, rgba(255,214,102,0.24), var(--surface) 72%);
+  }
+  .rank-slot.correct.gold .rank-label{ color:#ffe9a8; }
+  .rank-slot.correct.gold .rank-slot-num{ background: linear-gradient(135deg, #ffe58a, #c98f0a); color:#3b2600; }
+  /* reflet de lumière qui balaie la carte */
+  .rank-slot.correct.gold .rank-card::after{
+    content:"";
+    position:absolute; inset:0; z-index:4; pointer-events:none;
+    background: linear-gradient(115deg, transparent 36%, rgba(255,246,200,0.38) 50%, transparent 64%);
+    transform: translateX(-120%);
+  }
+  /* la couronne, posée à cheval sur le bord haut de la carte */
+  .rank-crown{
+    position:absolute; left:50%; top:-19px; width:52%;
+    transform: translateX(-50%) rotate(-6deg);
+    z-index:6; pointer-events:none;
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,0.55)) drop-shadow(0 0 8px rgba(255,200,60,0.55));
+  }
+  /* étincelles (étoiles à 4 branches) autour de la carte */
+  .spark{
+    position:absolute; left:var(--x); top:var(--y);
+    width:var(--s); height:var(--s);
+    background: radial-gradient(circle, #fff 0%, #ffe58a 45%, #f2c230 100%);
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+    opacity:0; pointer-events:none; z-index:7;
+  }
+  /* petite explosion de particules dorées au moment où la 1ère place est trouvée */
+  .burst{
+    position:absolute; left:50%; top:50%;
+    width:7px; height:7px; margin:-3px 0 0 -3px;
+    border-radius:50%;
+    background: radial-gradient(circle, #fff6c8 0%, #f2c230 60%, rgba(242,194,48,0) 72%);
+    opacity:0; pointer-events:none; z-index:7;
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .rank-slot.correct.gold{ animation: goldGlow 2.8s ease-in-out infinite alternate; }
+    .rank-slot.correct.gold::before{ animation: goldSpin 6s linear infinite; }
+    .rank-slot.correct.gold .rank-card::after{ animation: goldShine 4.2s ease-in-out 1s infinite; }
+    .spark{ animation: twinkle 2.8s ease-in-out infinite; animation-delay: var(--d); }
+    .burst{ animation: burstOut 0.95s ease-out forwards; }
+    /* à l'instant où la 1ère place est trouvée : la carte "pop" et la couronne tombe */
+    .rank-slot.correct.gold.reveal{ animation: goldPop 0.8s cubic-bezier(.2,1.4,.4,1), goldGlow 2.8s ease-in-out 0.8s infinite alternate; }
+    .rank-slot.gold.reveal .rank-crown{ animation: crownDrop 1s cubic-bezier(.2,1.5,.35,1) both; }
+  }
+  @keyframes goldGlow{
+    from{ box-shadow: 0 0 14px rgba(255,200,60,0.40), 0 0 32px rgba(255,170,0,0.14); }
+    to{ box-shadow: 0 0 22px rgba(255,214,90,0.70), 0 0 52px rgba(255,170,0,0.28); }
+  }
+  @keyframes goldSpin{ to{ --gold-angle: 360deg; } }
+  @keyframes goldShine{ 0%{ transform: translateX(-120%); } 30%,100%{ transform: translateX(120%); } }
+  @keyframes goldPop{ 0%{ transform: scale(0.94); } 55%{ transform: scale(1.07); } 100%{ transform: scale(1); } }
+  @keyframes crownDrop{
+    0%{ opacity:0; transform: translateX(-50%) translateY(-34px) rotate(-30deg) scale(0.4); }
+    60%{ opacity:1; transform: translateX(-50%) translateY(3px) rotate(2deg) scale(1.12); }
+    100%{ opacity:1; transform: translateX(-50%) translateY(0) rotate(-6deg) scale(1); }
+  }
+  @keyframes twinkle{
+    0%,100%{ opacity:0; transform: scale(0.3) rotate(0deg); }
+    50%{ opacity:1; transform: scale(1) rotate(45deg); }
+  }
+  @keyframes burstOut{
+    0%{ opacity:1; transform: translate(0,0) scale(1); }
+    100%{ opacity:0; transform: translate(var(--dx), var(--dy)) scale(0.2); }
+  }
+
+  .result-line{
+    flex-shrink:0;
+    display:flex; align-items:center; gap:7px;
+    font-size: 13px; font-weight:600;
+    min-height: 18px;
+  }
+  .result-line.correct{ color: var(--green); }
+  .result-line.incorrect{ color: var(--red); }
+  .result-line svg{ width:15px; height:15px; flex-shrink:0; }
+  .result-line span{ white-space:nowrap; }
+
+  #next-btn, #rank-validate-btn{ flex-shrink:0; }
+  .hidden{ display:none !important; }
+
+  /* ============================================================
+     LIVE CHAT — la seule partie de la page qui défile (en interne).
+     "chat-stage" prend toute la place qui reste une fois la vidéo,
+     le titre, les réponses et le bouton casés ; à l'intérieur,
+     "chat-list" est la liste qui scrolle ; l'en-tête reste fixe au-dessus.
+     Les messages de "BB" (toi) sont encadrés et le dernier reste collé
+     en haut de la liste (voir ".chat-row.host.latest" plus bas).
+  ============================================================ */
+  .chat-stage{
+    position:relative;
+    flex: 1 1 0;
+    min-height: 54px; /* le chat ne descend jamais en dessous de cette hauteur */
+    display:flex;
+    flex-direction:column;
+  }
+
+  /* Emoji flottants façon Facebook Live : purement décoratif, ils montent
+     depuis le haut du chat puis s'évanouissent. Gérés en JS (cherche
+     "REACTION_EMOJIS" plus bas) — cette partie ne fait que définir leur style. */
+  .reaction-layer{ position:absolute; left:0; right:0; top:0; height:0; overflow:visible; pointer-events:none; z-index:5; }
+  .float-emoji{
+    position:absolute;
+    top: 0;
+    font-size: 20px;
+    opacity:0;
+    will-change: transform, opacity;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .float-emoji.rising{ animation: floatUp 3s ease-out forwards; }
+  }
+  @keyframes floatUp{
+    0%{ opacity:0; transform: translate(0,0) scale(0.6); }
+    14%{ opacity:1; transform: translate(0,-16px) scale(1); }
+    100%{ opacity:0; transform: translate(var(--drift,0px),-190px) scale(1.05); } /* -190px = distance parcourue vers le haut */
+  }
+
+  .chat-panel{
+    flex: 1;
+    min-height: 0;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+  }
+  .chat-head{ flex-shrink:0; display:flex; align-items:center; gap:6px; margin-bottom:5px; }
+  .chat-head-label{ font-size: 11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-dim); }
+  #viewer-count{ font-size: 11px; color: var(--text-faint); margin-left:auto; }
+
+  .chat-list{
+    flex: 1 1 auto;
+    min-height: 0;
+    display:flex; flex-direction:column; gap:6px;
+    overflow-y:auto;
+    padding-right: 2px;
+  }
+  /* Ancre la liste en BAS : avec peu de messages ils s'empilent tout en bas
+     (comme dans un vrai direct) et chaque nouveau message fait remonter les
+     anciens. Astuce : un élément vide avec "margin-top:auto" avale tout
+     l'espace libre du haut. */
+  .chat-list::before{ content:""; margin-top:auto; }
+  /* Aucune barre de défilement visible, jamais : le chat défile quand même
+     normalement au doigt (ou à la molette). */
+  .chat-list{ scrollbar-width: none; -ms-overflow-style: none; }
+  .chat-list::-webkit-scrollbar{ display:none; width:0; height:0; }
+  .chat-row{ display:flex; gap:7px; align-items:flex-start; }
+  .chat-avatar{ width:17px; height:17px; border-radius:50%; flex-shrink:0; margin-top:1px; }
+  .chat-msg{ font-size: 12px; line-height:1.42; margin:0; }
+  .chat-name{ font-weight: 600; }
+  .chat-divider{ font-size: 11px; color: var(--text-faint); font-style:italic; text-align:center; padding: 3px 0; }
+
+  /* Les messages de "BB" (toi — voir HOST_NAME dans le script) sont encadrés.
+     Le tout dernier (".latest") reste collé en haut du chat quand les autres
+     messages le font remonter : il ne disparaît donc jamais de l'écran. Son fond
+     est opaque exprès, pour cacher les messages qui défilent derrière lui. */
+  .chat-row.host{
+    padding: 7px 9px;
+    border: 1px solid rgba(255,46,77,0.55);
+    border-radius: 10px;
+    background: #2a131b;
+    box-shadow: 0 0 14px rgba(255,46,77,0.16);
+  }
+  .chat-row.host .chat-msg{ font-size: 12.5px; }
+  .chat-row.host .chat-name{ color: var(--red); }
+  .chat-row.host.latest{
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    box-shadow: 0 0 14px rgba(255,46,77,0.16), 0 10px 12px -6px rgba(10,6,7,0.95);
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .chat-row.enter{ animation: rowIn 0.35s ease both; }
+    /* petite pulsation rouge quand BB écrit, pour qu'elle remarque son message */
+    .chat-row.host.enter{ animation: rowIn 0.35s ease both, hostPing 1.3s ease-out 0.25s 2; }
+  }
+  @keyframes rowIn{ from{ opacity:0; transform: translateY(4px); } to{ opacity:1; transform:none; } }
+  @keyframes hostPing{
+    0%{ box-shadow: 0 0 0 0 rgba(255,46,77,0.6); }
+    100%{ box-shadow: 0 0 0 12px rgba(255,46,77,0); }
+  }
+
+  /* ============================================================
+     CARTE DE TRANSITION ("interlude") — marque le passage d'une partie à l'autre
+     (voir le champ "intro" d'un épisode dans le script). Une seule séquence animée :
+     le titre arrive, puis BB parle ligne par ligne, puis le bouton apparaît.
+     Appuyer sur la carte affiche tout d'un coup.
+  ============================================================ */
+  .interlude{
+    position:fixed; inset:0; z-index:500;
+    display:flex; align-items:center; justify-content:center;
+    padding: max(22px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 40%, rgba(255,46,77,0.2), transparent 70%),
+      rgba(10,6,7,0.9);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .interlude.closing{ opacity:0; pointer-events:none; transition: opacity 0.3s ease; }
+  .interlude-card{
+    width: min(100%, 348px);
+    padding: 26px 22px 22px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,46,77,0.5);
+    background: linear-gradient(180deg, #2b141c 0%, #1b1016 100%);
+    box-shadow: 0 0 60px rgba(255,46,77,0.2), 0 24px 60px rgba(0,0,0,0.6);
+    text-align:center;
+    display:flex; flex-direction:column; align-items:center; gap: 14px;
+  }
+  .il-title{
+    font-family: var(--font-display); font-weight:400;
+    font-size: clamp(56px, 16vw, 72px); line-height:0.95; letter-spacing:0.02em;
+    color: var(--red); text-shadow: 0 0 40px rgba(255,46,77,0.45);
+    margin:0;
+  }
+  .il-rule{ width:56px; height:2px; border-radius:2px; background: linear-gradient(90deg, transparent, var(--red), transparent); }
+  /* qui parle : le même avatar que dans le chat */
+  .il-host{
+    display:inline-flex; align-items:center; gap:7px;
+    padding: 4px 12px 4px 5px; border-radius:20px;
+    border: 1px solid rgba(255,46,77,0.5); background: rgba(255,46,77,0.08);
+    font-size:12px; font-weight:600; color: var(--red);
+  }
+  .il-host .chat-avatar{ width:20px; height:20px; margin:0; }
+  .il-lines{ display:flex; flex-direction:column; gap:10px; }
+  .il-line{
+    margin:0; font-size:14.5px; line-height:1.5; color:#e6d9dc;
+    opacity:0; transform: translateY(8px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .il-line.lead{ font-size:21px; font-weight:700; color: var(--text); }
+  .il-line.sign{ font-weight:600; color: var(--red); }
+  .il-line.show{ opacity:1; transform:none; }
+  .il-btn{ width:100%; max-width:240px; margin-top:6px; opacity:0; pointer-events:none; transition: opacity 0.4s ease; }
+  .il-btn.show{ opacity:1; pointer-events:auto; }
+  .il-skip{ width:100%; max-width:240px; margin-top:8px; opacity:0; pointer-events:none; transition: opacity 0.4s ease; }
+  .il-skip.show{ opacity:1; pointer-events:auto; }
+  @media (prefers-reduced-motion: no-preference){
+    .interlude{ animation: ilFade 0.35s ease both; }
+    .interlude-card{ animation: ilPop 0.55s cubic-bezier(.2,1.15,.3,1) both; }
+    .il-title{ animation: logoIn 0.9s cubic-bezier(.2,.8,.2,1) 0.1s both; }
+  }
+  @media (prefers-reduced-motion: reduce){ .il-line, .il-btn{ transition:none; transform:none; } }
+  @keyframes ilFade{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes ilPop{ from{ opacity:0; scale:0.94; } to{ opacity:1; scale:1; } }
+
+  /* ============================================================
+     POINTS ET PALIERS — la barre en haut de l'écran : chaque bonne réponse fait
+     avancer le remplissage ; chaque pastille est un palier (grise = à venir,
+     dorée qui pulse = atteint, dorée pleine = débloqué).
+  ============================================================ */
+  .tiers{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding: 0 4px; }
+  .tiers-pts{ flex-shrink:0; min-width:38px; font-size:12px; font-weight:700; font-variant-numeric: tabular-nums; white-space:nowrap; color: var(--text); }
+  .tiers-pts.pop{ animation: ptsPop 0.55s ease; }
+  /* compteur de série : visible à partir de 2 bonnes réponses d'affilée */
+  .streak{ flex-shrink:0; display:inline-flex; align-items:center; gap:1px; font-family: var(--font-display); font-size:17px; line-height:1; letter-spacing:0.02em; color:#ffb347; }
+  .streak svg{ width:13px; height:13px; }
+  .streak.hot{ color:#ff6a3d; text-shadow: 0 0 10px rgba(255,106,61,0.65); }
+  .streak.pop{ animation: streakPop 0.5s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes streakPop{ 0%{ transform: scale(0.6); } 60%{ transform: scale(1.4); } 100%{ transform: scale(1); } }
+  .tiers-track{ position:relative; flex:1; min-width:28px; height:4px; margin-right:6px; border-radius:4px; background: rgba(255,255,255,0.14); }
+  .tiers-fill{
+    position:absolute; left:0; top:0; bottom:0; width:0; border-radius:4px;
+    background: linear-gradient(90deg, #ff2e4d, #ff6a3d 70%, #ffb020);
+    box-shadow: 0 0 8px rgba(255,46,77,0.6);
+    transition: width 0.7s cubic-bezier(.2,.8,.2,1);
+  }
+  .tier-mark{
+    position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:50%;
+    background:#1d1218; border: 1.5px solid rgba(255,255,255,0.32); z-index:1;
+  }
+  .tier-mark.pending{ border-color:#f2c230; box-shadow: 0 0 8px rgba(242,194,48,0.8); }
+  .tier-mark.unlocked{
+    background: radial-gradient(circle at 35% 30%, #fff6c8, #f2c230 55%, #b8780a);
+    border-color:#8a5a00; box-shadow: 0 0 8px rgba(242,194,48,0.7);
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .tier-mark.pending{ animation: tierPulse 1.3s ease-in-out infinite; }
+    .tier-mark.just{ animation: tierJust 0.8s cubic-bezier(.2,1.5,.3,1); }
+  }
+  @keyframes ptsPop{ 0%{ scale:1; } 40%{ scale:1.3; color: var(--amber); } 100%{ scale:1; } }
+  @keyframes tierPulse{ 0%,100%{ scale:1; } 50%{ scale:1.3; } }
+  @keyframes tierJust{ 0%{ scale:0.4; } 60%{ scale:1.7; } 100%{ scale:1; } }
+
+  /* ============================================================
+     PALIER DÉBLOQUÉ — l'animation de félicitations : une médaille dorée qui tombe
+     au milieu de rayons qui tournent, une pluie de confettis (dessinée en JS sur
+     le <canvas>), le nom du palier qui se pose, puis le texte de la récompense.
+     Appuyer n'importe où affiche tout d'un coup. Sans "réduire les animations"
+     activé, tout est animé ; sinon tout est affiché directement.
+  ============================================================ */
+  .tierpop{
+    position:fixed; inset:0; z-index:600;
+    display:flex; align-items:center; justify-content:center;
+    padding: max(22px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    background:
+      radial-gradient(ellipse 70% 45% at 50% 36%, rgba(255,200,60,0.3), transparent 70%),
+      rgba(10,6,7,0.93);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .tierpop.closing{ opacity:0; pointer-events:none; transition: opacity 0.3s ease; }
+  .tierpop-confetti{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:3; }
+  .tierpop-card{ position:relative; z-index:2; width: min(100%, 340px); display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; }
+  .tp-emblem{ position:relative; width:200px; height:210px; display:grid; place-items:center; }
+  .tp-rays{
+    position:absolute; left:50%; top:44%; width:380px; height:380px; margin:-190px 0 0 -190px; border-radius:50%;
+    background: repeating-conic-gradient(from 0deg, rgba(255,214,102,0.32) 0 5deg, transparent 5deg 15deg);
+    -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 68%);
+    mask-image: radial-gradient(circle, #000 0%, transparent 68%);
+    pointer-events:none;
+  }
+  .tp-ring{
+    position:absolute; left:50%; top:44%; width:150px; height:150px; margin:-75px 0 0 -75px; border-radius:50%;
+    border: 3px solid rgba(255,214,102,0.85); opacity:0; pointer-events:none;
+  }
+  .tp-medal{
+    position:relative; width:140px; height:170px;
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.5)) drop-shadow(0 0 26px rgba(255,200,60,0.55));
+  }
+  .tp-title{
+    margin:0; font-family: var(--font-display); font-weight:400;
+    font-size: clamp(54px, 15vw, 68px); line-height:1; letter-spacing:0.03em;
+    background: linear-gradient(180deg, #fff6c8 0%, #f2c230 55%, #b8780a 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color: transparent; color: transparent;
+    filter: drop-shadow(0 0 18px rgba(242,194,48,0.45));
+  }
+  .tp-sub{ margin:0; font-size:15px; font-weight:600; color: var(--text); }
+  .tp-reward{
+    margin:6px 0 0; max-width:300px; padding:12px 16px; border-radius:14px;
+    border: 1px solid rgba(242,194,48,0.5); background: rgba(242,194,48,0.08);
+    font-size:14.5px; line-height:1.5; color:#f7ecd0;
+    box-shadow: 0 0 30px rgba(242,194,48,0.12);
+  }
+  .tp-btn{ width:100%; max-width:240px; margin-top:10px; opacity:0; pointer-events:none; transition: opacity 0.4s ease; }
+  .tp-btn.show{ opacity:1; pointer-events:auto; }
+  @media (prefers-reduced-motion: no-preference){
+    .tierpop{ animation: ilFade 0.35s ease both; }
+    .tp-rays{ animation: tpRaysIn 1.1s ease 0.1s both, tpSpin 26s linear infinite; }
+    .tp-medal{ animation: tpMedalIn 0.95s cubic-bezier(.2,1.3,.3,1) 0.2s both; }
+    .tp-ring{ animation: tpRing 1.3s ease-out 0.6s both; }
+    .tp-title{ animation: logoIn 0.9s cubic-bezier(.2,.8,.2,1) 0.85s both; }
+    .tp-sub{ animation: fadeUp 0.6s ease 1.3s both; }
+    .tp-reward{ animation: fadeUp 0.6s ease 1.7s both; }
+    /* un appui affiche tout de suite l'état final */
+    .tierpop.skip .tp-medal, .tierpop.skip .tp-title, .tierpop.skip .tp-sub, .tierpop.skip .tp-reward{ animation-duration:0.01s; animation-delay:0s; }
+    .tierpop.skip .tp-rays{ animation-duration:0.01s, 26s; animation-delay:0s, 0s; }
+  }
+  @keyframes tpRaysIn{ from{ opacity:0; scale:0.4; } to{ opacity:1; scale:1; } }
+  @keyframes tpSpin{ to{ transform: rotate(360deg); } }
+  @keyframes tpMedalIn{
+    0%{ opacity:0; transform: translateY(34px) rotate(-35deg) scale(0.2); }
+    60%{ opacity:1; transform: translateY(0) rotate(6deg) scale(1.14); }
+    100%{ opacity:1; transform: none; }
+  }
+  @keyframes tpRing{ 0%{ opacity:0.9; transform: scale(0.6); } 100%{ opacity:0; transform: scale(2.4); } }
+
+  /* ============================================================
+     END SCREEN
+  ============================================================ */
+  #screen-end{ justify-content:center; align-items:center; text-align:center; gap: clamp(7px, 1.5dvh, 13px); }
+  .end-title{ font-family: var(--font-display); font-size: clamp(30px,7dvh,40px); color:var(--text); letter-spacing:0.02em; margin:0; }
+  /* le ticket : c'est lui qu'elle prend en capture d'écran (nom, code, score, date) */
+  .ticket{
+    width:100%; max-width:320px; padding: 9px 16px 10px; border-radius:14px;
+    border: 1px solid rgba(242,194,48,0.55);
+    background: linear-gradient(160deg, rgba(242,194,48,0.15), rgba(255,255,255,0.03));
+    box-shadow: 0 0 26px -8px rgba(242,194,48,0.55);
+  }
+  .tk-head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; color: var(--text-dim); }
+  .tk-name{ font-weight:700; color:#f2c230; text-transform:uppercase; letter-spacing:0.14em; }
+  .tk-code{ font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing:0.06em; font-variant-numeric: tabular-nums; }
+  .tk-score{ margin-top:6px; padding-top:5px; border-top:1px dashed rgba(242,194,48,0.4); display:flex; justify-content:center; align-items:baseline; gap:7px; font-size:13px; color: var(--text-dim); }
+  .tk-score b{
+    font-family: var(--font-display); font-weight:400; font-size: clamp(34px, 7dvh, 46px); line-height:1;
+    background: linear-gradient(180deg, #fff1a8, #f2c230 55%, #b8780a); -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .tk-date{ margin-top:3px; font-size:10.5px; color: var(--text-faint); }
+
+  /* la pyramide des cadeaux : de 0 (base) au maximum (sommet). Les cadeaux au-dessus de son score restent cachés. */
+  .pyramid{ width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .py-apex{ font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color: var(--text-faint); }
+  .py-row{
+    display:flex; align-items:center; gap:7px; min-width:0; padding: 0 10px 0 5px;
+    height: clamp(24px, 4.6dvh, 33px); border-radius:8px;
+    font-size: clamp(10.5px, 1.65dvh, 12.5px); color: var(--text-faint);
+    border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03);
+  }
+  .py-num{ flex-shrink:0; width:20px; height:20px; border-radius:50%; display:grid; place-items:center; font-family: var(--font-display); font-size:13px; border:1px solid rgba(255,255,255,0.22); }
+  .py-label{ flex:1; min-width:0; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .py-pts{ flex-shrink:0; font-variant-numeric: tabular-nums; }
+  .py-row.locked .py-label{ letter-spacing:0.28em; }
+  .py-row.passed{ color: var(--text); border-color: rgba(242,194,48,0.35); background: rgba(242,194,48,0.08); }
+  .py-row.passed .py-num, .py-row.got .py-num{ color:#3b2600; border-color:#8a5a00; background: radial-gradient(circle at 35% 30%, #fff6c8, #f2c230 55%, #b8780a); }
+  .py-row.got{ color:#fff1a8; font-weight:700; border-color:#f2c230; background: linear-gradient(90deg, rgba(242,194,48,0.28), rgba(242,194,48,0.10)); box-shadow: 0 0 18px -4px rgba(242,194,48,0.65); }
+  .py-row.base{ color: var(--text-dim); }
+  .end-gift{ margin:0; max-width:310px; font-size:13.5px; line-height:1.5; color: var(--text-dim); }
+  .end-gift b{ color:#f2c230; font-weight:700; }
+  .end-gap{ margin:0; max-width:310px; font-size:13.5px; font-weight:600; line-height:1.5; color: var(--text); }
+  @media (max-height: 700px){ .end-note, .tk-date{ display:none; } }
+  .end-note{ font-size: 13.5px; color: var(--text-dim); max-width: 300px; line-height:1.6; margin: 6px 0 10px; }
+  #replay-btn{ width:100%; max-width:220px; }
+
+</style>
+</head>
+<body>
+
+<!-- dégradés réutilisés par la couronne de la 1ère place (voir CROWN_SVG dans le script) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="crownGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1a8"/>
+      <stop offset="0.45" stop-color="#f2c230"/>
+      <stop offset="1" stop-color="#b8780a"/>
+    </linearGradient>
+    <linearGradient id="crownShine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="stage">
+
+  <!-- ================= LANDING ================= -->
+  <main id="screen-start" class="screen active">
+    <span class="badge">Série originale</span>
+    <h1 class="logo-mark">Netfloux</h1>
+    <p class="landing-hook">Une série de questions t'attend. L'objectif : décrocher un maximum de points.</p>
+    <p class="landing-sub">Pour ça, tu pourras compter sur les compétences développées pendant tes milliers d'heures passées sur internet — et sur les encouragements d'un faux public.</p>
+    <button id="start-btn" class="btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      Commencer
+    </button>
+    <p class="landing-foot">fait avec un peu trop d'amour</p>
+  </main>
+
+  <!-- ================= QUIZ ================= -->
+  <main id="screen-quiz" class="screen">
+    <div class="quiz-topline">
+      <span class="badge" id="ep-badge">Épisode 1/5</span>
+      <!-- Points et paliers : le remplissage avance à chaque bonne réponse ; chaque pastille est un palier -->
+      <div class="tiers" id="tiers" aria-label="Points et paliers">
+        <span class="streak hidden" id="streak" title="Série de bonnes réponses"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2s5.2 4.6 5.2 9.6A5.2 5.2 0 0 1 6.8 11.6c0-1.9.9-3.2 1.9-4.2.2 1.6 1.2 2.3 2.3 2.1C10.3 7.2 10.7 4.3 12 2z" fill="currentColor"/></svg><b id="streak-n">2</b></span>
+        <span class="tiers-pts" id="tiers-pts">0 pt</span>
+        <div class="tiers-track" id="tiers-track"><i class="tiers-fill" id="tiers-fill"></i></div>
+      </div>
+      <span class="quiz-brandmark">Netfloux</span>
+    </div>
+
+    <div class="video-stage" id="video-stage">
+      <div class="video-wrap" id="video-wrap">
+        <video id="ep-video" muted playsinline preload="auto"></video>
+        <div class="video-fallback" id="video-fallback">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z" fill="currentColor" stroke="none"/></svg>
+          <p>Dépose <code id="video-path-hint">1-her.mp4</code> à côté de netfloux.html<br>en attendant, on imagine la scène</p>
+        </div>
+        <div class="video-tag"><span class="live-dot pulsing"></span> extrait</div>
+        <div class="video-brandbug">Netfloux</div>
+        <button type="button" class="video-replay hidden" id="video-replay" aria-label="Revoir l'extrait">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4.6v4h4"/></svg>
+          <span>Revoir</span>
+        </button>
+      </div>
+      <!-- Invitation à activer le son (affichée tant que la vidéo est muette) -->
+      <button type="button" class="sound-nudge hidden" id="sound-nudge" aria-label="Activer le son de la vidéo">
+        <span class="sn-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path class="sn-speaker" d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/>
+            <path class="sn-wave sn-w1" d="M15.4 9.2a4.2 4.2 0 0 1 0 5.6"/>
+            <path class="sn-wave sn-w2" d="M18.2 6.6a8 8 0 0 1 0 10.8"/>
+            <path class="sn-check" d="M14.8 12.4l2.4 2.4 4.2-4.8"/>
+          </svg>
+        </span>
+        <span class="sn-text">
+          <span class="sn-title" id="sound-nudge-title">Active le son</span>
+          <span class="sn-sub" id="sound-nudge-sub">et monte le volume</span>
+        </span>
+      </button>
+    </div>
+
+    <!-- Sous la vidéo : avant sa réponse, une barre pour se déplacer dans l'extrait (sans jamais
+         dépasser la limite) ; après sa réponse, le message "La réponse en image". -->
+    <div class="video-ctl hidden" id="video-ctl">
+      <div class="scrubber hidden" id="scrubber">
+        <button type="button" class="scrub-play" id="scrub-play" aria-label="Lecture / pause">
+          <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+        </button>
+        <input type="range" class="scrub" id="scrub" min="0" max="1" step="0.1" value="0" aria-label="Se déplacer dans l'extrait">
+        <span class="scrub-time" id="scrub-time">0:00 / 0:00</span>
+      </div>
+      <div class="answer-banner hidden" id="answer-banner" role="status">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <span>La réponse en image</span>
+      </div>
+    </div>
+
+    <h2 class="q-title" id="q-title"></h2>
+
+    <!-- Écran de type "classement" : caché la plupart du temps, affiché à la
+         place du bloc vidéo (et des réponses) quand ep.type === "rank". -->
+    <div class="rank-stage hidden" id="rank-stage">
+      <div class="rank-slots" id="rank-slots"></div>
+      <div class="rank-pool" id="rank-pool"></div>
+    </div>
+
+    <div class="options-grid" id="options"></div>
+    <div class="result-line" id="result-line"></div>
+
+    <button id="rank-validate-btn" class="btn-primary hidden">Valider mon classement</button>
+    <button id="next-btn" class="btn-primary hidden">Épisode suivant</button>
+
+    <div class="chat-stage">
+      <section class="chat-panel" id="chat-panel">
+        <div class="chat-head">
+          <span class="live-dot pulsing"></span>
+          <span class="chat-head-label">En direct</span>
+          <span id="viewer-count">300 spectateurs</span>
+        </div>
+        <div class="chat-list" id="chat-list"></div>
+      </section>
+      <div class="reaction-layer" id="reaction-layer"></div>
+    </div>
+  </main>
+
+  <!-- ================= END ================= -->
+  <main id="screen-end" class="screen">
+    <span class="badge">Fin de saison</span>
+    <h2 class="end-title">C'est déjà fini</h2>
+    <div class="ticket" id="end-ticket">
+      <div class="tk-head"><span class="tk-name" id="tk-name">bb</span><span class="tk-code" id="tk-code">NFX-0-0000</span></div>
+      <div class="tk-score"><b id="score-line">0</b><span id="score-max">/ 48 points</span></div>
+      <div class="tk-date" id="tk-date"></div>
+    </div>
+    <div class="pyramid" id="end-pyramid"></div>
+    <p class="end-gift hidden" id="end-gift"></p>
+    <p class="end-gap" id="end-gap"></p>
+    <p class="end-note" id="final-note"></p>
+    <button id="replay-btn" class="btn-ghost">Revoir la saison</button>
+  </main>
+
+</div>
+
+<!-- ================= CARTE DE TRANSITION entre 2 parties (voir "intro" dans le script) ================= -->
+<div class="interlude hidden" id="interlude" role="dialog" aria-modal="true" aria-labelledby="interlude-title">
+  <div class="interlude-card" id="interlude-card">
+    <h2 class="il-title" id="interlude-title"></h2>
+    <span class="il-rule" aria-hidden="true"></span>
+    <span class="il-host"><span class="chat-avatar" id="interlude-avatar"></span><span id="interlude-host">BB</span></span>
+    <div class="il-lines" id="interlude-lines"></div>
+    <button type="button" class="btn-primary il-btn" id="interlude-btn">C'est parti</button>
+    <button type="button" class="btn-ghost il-skip hidden" id="interlude-skip"></button>
+  </div>
+</div>
+
+<!-- ================= PALIER DÉBLOQUÉ : animation de félicitations (voir TIERS dans le script) ================= -->
+<div class="tierpop hidden" id="tierpop" role="dialog" aria-modal="true" aria-labelledby="tierpop-title">
+  <div class="tierpop-card" id="tierpop-card">
+    <div class="tp-emblem" id="tierpop-emblem" aria-hidden="true">
+      <span class="tp-rays"></span>
+      <span class="tp-ring"></span>
+      <svg class="tp-medal" viewBox="0 0 140 170"><defs>
+    <linearGradient id="tpGold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1a8"/><stop offset="0.45" stop-color="#f2c230"/><stop offset="1" stop-color="#b8780a"/>
+    </linearGradient>
+    <linearGradient id="tpInner" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe58a"/><stop offset="0.55" stop-color="#f2c230"/><stop offset="1" stop-color="#c98f0a"/>
+    </linearGradient>
+    <linearGradient id="tpRibL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff2e4d"/><stop offset="1" stop-color="#a30f2a"/></linearGradient>
+    <linearGradient id="tpRibR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e01c3d"/><stop offset="1" stop-color="#8e0c24"/></linearGradient>
+    <linearGradient id="tpShine" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.65"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  </defs>
+  <path d="M46 96 L27 158 L51 147 L64 166 L77 100 Z" fill="url(#tpRibL)" stroke="#6b0a1e" stroke-width="1" stroke-linejoin="round"/>
+  <path d="M94 96 L113 158 L89 147 L76 166 L63 100 Z" fill="url(#tpRibR)" stroke="#6b0a1e" stroke-width="1" stroke-linejoin="round"/>
+  <g fill="url(#tpGold)" stroke="#8a5a00" stroke-width="0.8"><circle cx="125.00" cy="68.00" r="7.2"/><circle cx="121.68" cy="86.81" r="7.2"/><circle cx="112.13" cy="103.35" r="7.2"/><circle cx="97.50" cy="115.63" r="7.2"/><circle cx="79.55" cy="122.16" r="7.2"/><circle cx="60.45" cy="122.16" r="7.2"/><circle cx="42.50" cy="115.63" r="7.2"/><circle cx="27.87" cy="103.35" r="7.2"/><circle cx="18.32" cy="86.81" r="7.2"/><circle cx="15.00" cy="68.00" r="7.2"/><circle cx="18.32" cy="49.19" r="7.2"/><circle cx="27.87" cy="32.65" r="7.2"/><circle cx="42.50" cy="20.37" r="7.2"/><circle cx="60.45" cy="13.84" r="7.2"/><circle cx="79.55" cy="13.84" r="7.2"/><circle cx="97.50" cy="20.37" r="7.2"/><circle cx="112.13" cy="32.65" r="7.2"/><circle cx="121.68" cy="49.19" r="7.2"/></g>
+  <circle cx="70" cy="68" r="52" fill="url(#tpGold)" stroke="#8a5a00" stroke-width="1.6"/>
+  <circle cx="70" cy="68" r="42" fill="url(#tpInner)" stroke="#8a5a00" stroke-width="1.4"/>
+  <circle cx="70" cy="68" r="46.5" fill="none" stroke="#fff6c8" stroke-opacity="0.75" stroke-width="1" stroke-dasharray="1.6 4.2" stroke-linecap="round"/>
+  <path d="M70 34 L77.4 54 L98.6 55 L82 68.4 L87.6 89 L70 77.4 L52.4 89 L58 68.4 L41.4 55 L62.6 54 Z" fill="#fff1a8" fill-opacity="0.35" stroke="#b8780a" stroke-opacity="0.45" stroke-width="1" stroke-linejoin="round"/>
+  <text id="tierpop-num" x="70" y="83" text-anchor="middle" font-family="'Bebas Neue', Impact, sans-serif" font-size="58" fill="#4a2c00" stroke="#fff1a8" stroke-opacity="0.6" stroke-width="0.8" paint-order="stroke">1</text>
+  <path d="M26 52 A46 46 0 0 1 70 18" fill="none" stroke="url(#tpShine)" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+</svg>
+    </div>
+    <h2 class="tp-title" id="tierpop-title">Palier 1</h2>
+    <p class="tp-sub" id="tierpop-sub">5 points atteints</p>
+    <p class="tp-reward hidden" id="tierpop-reward"></p>
+    <button type="button" class="btn-primary tp-btn" id="tierpop-btn">Continuer</button>
+  </div>
+  <canvas class="tierpop-confetti" id="tierpop-confetti" aria-hidden="true"></canvas>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================================================================
+   ZONE À MODIFIER — c'est ici que tu personnalises tout le contenu.
+   Le reste du script plus bas n'a pas besoin d'être touché.
+================================================================ */
+
+// Ton pseudo dans le chat. Tous tes messages sont encadrés, et le tout dernier reste
+// affiché en haut du chat même quand d'autres messages arrivent en dessous.
+const HOST_NAME = "BB";
+
+// Ton tout premier message, affiché dans le chat au lancement. (Pour un retour
+// à la ligne, écris \n dans le texte.)
+const OPENING_MESSAGE = "bonne chance mon cœur, je crois en toi";
+
+// Le message affiché sur l'écran final. Personnalise-le librement.
+const FINAL_MESSAGE = "Merci d'avoir joué. Le vrai épisode bonus, c'est nous deux.";
+
+// Ses surnoms. Le site est PUBLIC : son vrai prénom n'apparaît nulle part. Ces surnoms servent au
+// chat (le mot {nom} dans les messages), aux cartes de transition, au ticket de fin et aux messages
+// envoyés sur Discord. Un surnom est tiré au sort au début de chaque partie.
+const PLAYER_NICKNAMES = ["bb", "chaton"];
+
+// Webhook Discord : à la fin de chaque partie, son score et la liste de ses réponses (erreurs
+// comprises) te sont envoyés dans ton salon, avec le même code que celui du ticket qu'elle
+// t'envoie en capture d'écran (pour vérifier qu'il correspond bien à une vraie partie).
+// ATTENTION : le site étant public, cette adresse est lisible par quiconque ouvre le code de la
+// page, et permet de poster dans ton salon. Quand le jeu n'est plus utilisé, supprime ce webhook
+// dans Discord (Paramètres du salon > Intégrations > Webhooks). Laisse "" pour désactiver l'envoi.
+const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1572063350865658018/kir3i4baO_wtlV1obQxsM1iLNrZLMSoYr5mALGaM0fSJQsIoRMstpW5QnShpLrqwfn7i";
+
+// Paliers de points = ses cadeaux. Chaque bonne réponse vaut 1 point ; la question bonus finale
+// ("double ou rien", voir le dernier épisode) DOUBLE ses points si elle a juste, ou les remet à zéro
+// si elle se trompe : le maximum possible est donc le double du nombre de questions. Le cadeau
+// qu'elle obtient est celui du PLUS HAUT palier atteint à la fin : elle ne choisit pas, et pour en
+// obtenir un autre il faut rejouer. Tu peux placer des paliers au-dessus du nombre de questions
+// (ex. 30, 40) : seule la question bonus permet de les atteindre.
+// Une barre en haut de l'écran montre la progression, et à chaque palier atteint une animation de
+// félicitations s'affiche — au moment où elle appuie sur "suivant", pour ne pas gêner la vidéo de
+// la réponse — avec le texte du cadeau. À la fin, une pyramide montre les paliers franchis et son
+// cadeau ; les paliers au-dessus de son score restent cachés ("???").
+//   - points : le nombre de points à atteindre
+//   - title  : (facultatif) le nom du palier ("Palier 1", "Palier 2"... par défaut)
+//   - reward : le texte du cadeau. Laisse "" pour ne rien afficher.
+// Retire tous les paliers (tableau vide) pour supprimer la barre, les animations et la pyramide.
+const TIERS = [
+  { points: 5,  reward: "" },
+  { points: 10, reward: "" },
+  { points: 15, reward: "" },
+  { points: 20, reward: "" },
+  { points: 24, reward: "" }
+];
+
+// Chaque objet ci-dessous est une question. Il y a 2 formats possibles :
+//
+// 1) Question vidéo (séries "Qui va jouir ?", "Will it fit" et "Did she like it ?") :
+//    - video          : nom du fichier vidéo, déposé dans le même dossier que ce fichier
+//                        (netfloux.html). Tous les formats d'image sont acceptés (vertical,
+//                        4:3, 16:9...) : le cadre s'adapte tout seul à chaque vidéo. Attention
+//                        aux .mkv : beaucoup de navigateurs de téléphone ne les lisent pas ; le
+//                        site essaie alors le même nom en .mp4 (pour convertir sans perte :
+//                        ffmpeg -i x.mkv -c copy x.mp4).
+//    - stopAt         : la limite de l'extrait (en secondes) tant qu'elle n'a pas répondu, car
+//                        la réponse se trouve après. Elle peut se déplacer librement dans
+//                        l'extrait (barre sous la vidéo, de 0 jusqu'à cette seconde) et le
+//                        revoir à volonté, mais jamais aller plus loin. Dès qu'elle a répondu,
+//                        la vidéo saute directement à cette seconde (le début de la réponse),
+//                        continue avec les contrôles, et le message "La réponse en image" s'affiche.
+//                        SANS "stopAt" : vidéo libre, qu'elle peut regarder en entier avec les
+//                        contrôles dès le départ (voir la série "Did she like it ?").
+//    - loop           : (facultatif) true = la vidéo recommence toute seule quand elle est finie
+//    - title          : la question, affichée au-dessus des choix
+//    - options        : 2 propositions (affichées en duel "A vs B") ou 4 (grille 2x2)
+//    - correct        : l'index de la bonne réponse dans "options" (0 = la 1ère, 1 = la 2e...)
+//    - reactions      : les faux commentaires qui s'affichent une fois qu'elle a répondu
+//
+// 2) Question "classement" (type: "rank", voir les 3 premiers épisodes) : au lieu
+//    d'une vidéo, elle remet 4 éléments dans le bon ordre en les glissant dans les cases
+//    numérotées (la case 1 = la 1ère place), puis appuie sur "Valider".
+//    - title          : la question
+//    - items          : 4 objets { id, name, image }. "name" = le texte affiché sur la
+//                        carte. "image" (facultatif) = nom d'un fichier image au format
+//                        PORTRAIT 3:4 (jpg, webp, avif...), déposé dans le même dossier que
+//                        ce fichier, ex "1-Anime.webp" ; laisse "" pour une carte sans image. Si "id"
+//                        correspond à une clé de RANK_ICONS plus bas, une petite
+//                        icône s'affiche à la place.
+//    - correctOrder   : la liste des "id" dans le bon ordre (le 1er = la 1ère place)
+//    - retry          : (facultatif) true = elle peut réessayer à l'infini jusqu'à
+//                        trouver le bon ordre ; sans ça, un seul essai
+//    - retryReactions : (facultatif) les faux commentaires d'encouragement après un
+//                        mauvais essai (utilisés à tour de rôle)
+//    - firstReactions : (facultatif) faux commentaires affichés quand la 1ère place est
+//                        trouvée pendant un essai raté (la couronne dorée apparaît)
+//    - reactions      : les faux commentaires affichés une fois la question terminée
+//    Quand une carte est bien placée après une validation, elle passe en vert ; la
+//    carte de la 1ère place, elle, reçoit une bordure dorée et une couronne.
+//    Barème : les 4 bonnes places = 1 point, sinon 0 (pas de point partiel).
+//
+// Pour les 2 formats :
+//    - part           : (facultatif) le nom de la série ("Top 4", "Qui va jouir ?"...) ; il
+//                        s'affiche en haut de l'écran avec le compteur de SA série (1/3, 2/3...).
+//    - intro          : (facultatif) une carte de transition plein écran, affichée AVANT cette
+//                        question (voir l'épisode 4) : { title, message, button }. "message" est
+//                        dit par toi (HOST_NAME), ligne par ligne ("\n" = nouvelle ligne).
+//    - hostReply      : (facultatif) un message de toi (HOST_NAME) qui s'affiche dans le chat
+//                        DÈS qu'elle a répondu, avant les réactions du public. Il remplace
+//                        celui qui était collé en haut du chat (voir l'épisode 4).
+const EPISODES = [
+  {
+    // Question "classement" avec droit à l'erreur (retry: true). Chaque carte a une image :
+    // un fichier portrait 3:4 déposé à côté de netfloux.html (champ "image").
+    type: "rank",
+    part: "Top 4",
+    retry: true,
+    title: "Quelles sont les catégories Pornhub les plus visitées en 2025 ?",
+    items: [
+      { id: "hentai",  name: "Hentai",  image: "1-Anime.webp" },
+      { id: "milf",    name: "Milf",    image: "2-mif.webp" },
+      { id: "lesbian", name: "Lesbian", image: "3-lesbian.jpg" },
+      { id: "anal",    name: "Anal",    image: "4-nal.avif" }
+    ],
+    correctOrder: ["hentai", "milf", "lesbian", "anal"],
+    retryReactions: [
+      { name: "TonBestFriend", msg: "allez, tu connais ça par cœur normalement" },
+      { name: "LucasXO", msg: "des milliers d'heures de recherche et tu hésites ?" },
+      { name: "Nadia_92", msg: "ton historique de navigation compte sur toi" },
+      { name: "Spectateur_812", msg: "je sens qu'elle trouve au prochain essai" },
+      { name: "ChatOfficiel", msg: "miaou (courage)" },
+      { name: "Spectateur_204", msg: "elle réfléchit, laissez-la travailler" },
+      { name: HOST_NAME, msg: "je crois en toi, c'est ta spécialité" }
+    ],
+    firstReactions: [
+      { name: "TonBestFriend", msg: "LA COURONNE ! la 1ère place est validée" },
+      { name: "Nadia_92", msg: "en tête, le jury est conquis" },
+      { name: "LucasXO", msg: "la couronne lui va bien" }
+    ],
+    reactions: [
+      { name: "TonBestFriend", msg: "les milliers d'heures de recherche ont payé" },
+      { name: "Nadia_92", msg: "mention spéciale pour les compétences" },
+      { name: "LucasXO", msg: "elle connaît le sujet mieux que les statistiques" },
+      { name: "Spectateur_812", msg: "diplôme de l'internet validé" },
+      { name: "ChatOfficiel", msg: "miaou (impressionné)" },
+      { name: HOST_NAME, msg: "je savais que tu étais une experte" }
+    ]
+  },
+  {
+    // Épisode 2 : même format que l'épisode 1 (classement, essais illimités).
+    type: "rank",
+    part: "Top 4",
+    retry: true,
+    title: "Quels sont les fantasmes féminins les plus populaires au Canada ?",
+    items: [
+      { id: "outdoor",  name: "Outdoor",         image: "1-outdoor.jpg" },
+      { id: "bdsm",     name: "Light BDSM",      image: "2-bdsm.webp" },
+      { id: "trio",     name: "Plan à 3",        image: "fmm.jpg" },
+      { id: "onenight", name: "One night stand", image: "onenight.avif" }
+    ],
+    correctOrder: ["outdoor", "bdsm", "trio", "onenight"],
+    retryReactions: [
+      { name: "Nadia_92", msg: "tu es censée être l'experte du sujet, non ?" },
+      { name: "TonBestFriend", msg: "réfléchis comme une statistique canadienne" },
+      { name: "LucasXO", msg: "elle hésite, c'est de la réflexion de haut niveau" },
+      { name: "Spectateur_812", msg: "les Canadiennes sont plus surprenantes qu'on pense" },
+      { name: "ChatOfficiel", msg: "miaou (suspense)" },
+      { name: "Spectateur_204", msg: "elle va trouver, j'ai confiance" },
+      { name: HOST_NAME, msg: "j'ai hâte de voir ton classement final" }
+    ],
+    firstReactions: [
+      { name: "TonBestFriend", msg: "OUTDOOR EN TÊTE, la couronne est méritée" },
+      { name: "Nadia_92", msg: "la nature a gagné" },
+      { name: "LucasXO", msg: "elle connaît ses classiques" }
+    ],
+    reactions: [
+      { name: "TonBestFriend", msg: "les statistiques n'ont plus de secrets pour elle" },
+      { name: "Nadia_92", msg: "mention très bien" },
+      { name: "LucasXO", msg: "elle aurait pu écrire l'étude elle-même" },
+      { name: "Spectateur_812", msg: "respect, le Canada n'a qu'à bien se tenir" },
+      { name: "ChatOfficiel", msg: "miaou (impressionné)" },
+      { name: HOST_NAME, msg: "je prends des notes" }
+    ]
+  },
+  {
+    // Épisode 3 : pareil, côté masculin. (Le dernier élément est écrit "Candaulisme" —
+    // modifie le nom si tu pensais à un autre mot.)
+    type: "rank",
+    part: "Top 4",
+    retry: true,
+    title: "Quels sont les fantasmes masculins les plus populaires au Canada ?",
+    items: [
+      { id: "trio",        name: "Plan à 3",        image: "1-ffm.jpg" },
+      { id: "outdoor",     name: "Outdoor",         image: "outdoorm.jpg" },
+      { id: "onenight",    name: "One night stand", image: "onenight.avif" },
+      { id: "candaulisme", name: "Candaulisme",     image: "4-codol.jpg" }
+    ],
+    correctOrder: ["trio", "outdoor", "onenight", "candaulisme"],
+    retryReactions: [
+      { name: "TonBestFriend", msg: "mets-toi dans la tête d'un Canadien" },
+      { name: "Nadia_92", msg: "tu les connais mieux que tu le crois" },
+      { name: "Spectateur_812", msg: "presque, courage" },
+      { name: "LucasXO", msg: "on n'a pas fait tout ce chemin pour s'arrêter là" },
+      { name: "ChatOfficiel", msg: "miaou (encouragements)" },
+      { name: "Spectateur_204", msg: "respire, réfléchis, valide" },
+      { name: HOST_NAME, msg: "je suis étonnamment stressé pour toi" }
+    ],
+    firstReactions: [
+      { name: "TonBestFriend", msg: "LA COURONNE ! numéro 1 trouvé" },
+      { name: "Nadia_92", msg: "elle commence fort" },
+      { name: "LucasXO", msg: "la couronne est sur la bonne tête" }
+    ],
+    reactions: [
+      { name: "TonBestFriend", msg: "elle connaît les hommes mieux que les hommes" },
+      { name: "Nadia_92", msg: "diplôme en psychologie masculine validé" },
+      { name: "LucasXO", msg: "je me sens très observé" },
+      { name: "Spectateur_812", msg: "série parfaite, on continue" },
+      { name: "ChatOfficiel", msg: "miaou (bluffé)" },
+      { name: "Spectateur_204", msg: "j'ai hâte de voir la suite" }
+    ]
+  },
+  {
+    // ===== Série "Qui va jouir en premier ?" : 8 vidéos, toutes en duel Elle contre Lui =====
+    // Pour chaque vidéo : le fichier, la seconde où elle s'arrête avant la réponse (stopAt) et
+    // la bonne réponse (correct : 0 = Elle, 1 = Lui ou Lui(s)).
+    // Cette 1ère vidéo ouvre la série : une carte de transition ("intro") s'affiche avant
+    // elle, et BB répond tout de suite après son choix ("hostReply").
+    part: "Qui va jouir ?",
+    intro: {
+      title: "Partie 2",
+      message: "bravo bb !\nmaintenant varions les plaisirs...\nTu vas devoir déterminer, à ton avis, qui va jouir en premier.\nBonne chance !",
+      button: "C'est parti"
+    },
+    video: "1-her.mp4",
+    stopAt: 40,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui"],
+    correct: 0,   // Elle
+    hostReply: "T'es la plus forte, allez bb !! <3",
+    reactions: [
+      { name: "TonBestFriend", msg: "le suspense est insoutenable" },
+      { name: "Nadia_92", msg: "je dis elle, sans hésiter" },
+      { name: "LucasXO", msg: "je dis lui, j'ai mes raisons" },
+      { name: "Spectateur_812", msg: "tout le monde a parié, plus qu'à attendre" },
+      { name: "ChatOfficiel", msg: "miaou (aucun commentaire)" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "2-her.mp4",
+    stopAt: 8,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui"],
+    correct: 0,   // Elle
+    reactions: [
+      { name: "Spectateur_204", msg: "8 secondes seulement, c'est cruel" },
+      { name: "TonBestFriend", msg: "allez, un petit effort" },
+      { name: "Nadia_92", msg: "pas de pression ma belle" },
+      { name: "LucasXO", msg: "j'ai déjà mon idée sur la réponse" },
+      { name: "ChatOfficiel", msg: "miaou (je ne parie jamais)" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "3-both.mp4",
+    stopAt: 23,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui(s)"],
+    correct: 1,   // Lui(s)
+    reactions: [
+      { name: "LucasXO", msg: "méfie-toi des apparences" },
+      { name: "TonBestFriend", msg: "celle-là est vicieuse" },
+      { name: "Spectateur_204", msg: "un peu de suspense dans ce monde de brutes" },
+      { name: "Nadia_92", msg: "j'ai changé trois fois d'avis" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "4-her.mp4",
+    stopAt: 23,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui(s)"],
+    correct: 0,   // Elle
+    reactions: [
+      { name: "Nadia_92", msg: "les paris sont ouverts" },
+      { name: "TonBestFriend", msg: "je change d'avis toutes les 5 secondes" },
+      { name: "LucasXO", msg: "j'ai doublé ma mise" },
+      { name: "ChatOfficiel", msg: "miaou (je suis neutre)" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "5-him.mp4",
+    stopAt: 2,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui"],
+    correct: 1,   // Lui
+    reactions: [
+      { name: "Spectateur_812", msg: "2 secondes ?! ils sont fous" },
+      { name: "TonBestFriend", msg: "là c'est de l'instinct pur" },
+      { name: "LucasXO", msg: "pile ou face, ça marche aussi" },
+      { name: "Spectateur_204", msg: "personne ne peut savoir en 2 secondes" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "6-her.mp4",
+    stopAt: 50,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui"],
+    correct: 0,   // Elle
+    reactions: [
+      { name: "TonBestFriend", msg: "50 secondes, on a le temps de réfléchir" },
+      { name: "Spectateur_812", msg: "la pression monte dans le chat" },
+      { name: "Nadia_92", msg: "personnellement j'ai déjà ma réponse" },
+      { name: "ChatOfficiel", msg: "miaou (je vote blanc)" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "7-him.mp4",
+    stopAt: 30,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui"],
+    correct: 1,   // Lui
+    reactions: [
+      { name: "Spectateur_204", msg: "on approche de la fin, ça se corse" },
+      { name: "Nadia_92", msg: "chaque réponse compte maintenant" },
+      { name: "TonBestFriend", msg: "je n'ose plus regarder" },
+      { name: "LucasXO", msg: "je mise tout sur elle" }
+    ]
+  },
+  {
+    part: "Qui va jouir ?",
+    video: "8-her.mp4",
+    stopAt: 24,
+    title: "Qui va jouir en premier ?",
+    options: ["Elle", "Lui(s)"],
+    correct: 0,   // Elle
+    reactions: [
+      { name: "TonBestFriend", msg: "la dernière ! ne la ratez pas" },
+      { name: "Nadia_92", msg: "tout se joue maintenant" },
+      { name: "LucasXO", msg: "le score final est dans la balance" },
+      { name: "Spectateur_812", msg: "j'ai les mains qui tremblent" },
+      { name: "Spectateur_204", msg: "bravo d'avance, quoi qu'il arrive" },
+      { name: "ChatOfficiel", msg: "miaou (ému)" }
+    ]
+  },
+  {
+    // ===== Série "Will it fit" : 7 vidéos, à chaque fois "ça va rentrer ?" Oui ou Non =====
+    // Pour chaque vidéo : le fichier (le nom donne la réponse : yes / no), la seconde où elle
+    // s'arrête avant la réponse (stopAt) et la bonne réponse (correct : 0 = Oui, 1 = Non).
+    // Comme pour la série précédente, une carte de transition ("intro") s'affiche avant la
+    // 1ère vidéo : le texte ci-dessous est un brouillon, modifie-le comme tu veux.
+    part: "Will it fit",
+    intro: {
+      title: "Partie 3",
+      message: "encore un nouveau jeu bb !\nplace au Will it fit...\nLa vidéo va s'arrêter : à toi de dire si ça va rentrer ou non.\nBonne chance !",
+      button: "C'est parti"
+    },
+    video: "0-no.mkv",
+    stopAt: 2,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 1,   // Non
+    reactions: [
+      { name: "TonBestFriend", msg: "ça passe ou ça casse" },
+      { name: "LucasXO", msg: "j'ai mon avis, je le garde pour moi" },
+      { name: "Nadia_92", msg: "2 secondes pour juger, bonne chance" },
+      { name: "ChatOfficiel", msg: "miaou (je ne m'avance pas)" }
+    ]
+  },
+  {
+    part: "Will it fit",
+    video: "1-yes.mp4",
+    stopAt: 7,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "Nadia_92", msg: "celle-là demande réflexion" },
+      { name: "Spectateur_812", msg: "les paris sont ouverts" },
+      { name: "TonBestFriend", msg: "je dis oui, mais je vais changer d'avis" },
+      { name: "Spectateur_204", msg: "le suspense est à son comble" }
+    ]
+  },
+  {
+    part: "Will it fit",
+    video: "2-yes.mp4",
+    stopAt: 6,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "LucasXO", msg: "ça se joue à pas grand-chose" },
+      { name: "TonBestFriend", msg: "6 secondes, ça suffit pour se faire une idée" },
+      { name: "Nadia_92", msg: "moi, j'ai ma petite idée" },
+      { name: "ChatOfficiel", msg: "miaou (aucun commentaire)" }
+    ]
+  },
+  {
+    part: "Will it fit",
+    video: "3-no.mp4",
+    stopAt: 4,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 1,   // Non
+    reactions: [
+      { name: "Spectateur_812", msg: "ça va être serré" },
+      { name: "Nadia_92", msg: "observe bien avant de répondre" },
+      { name: "LucasXO", msg: "j'ai un doute sur celle-là" },
+      { name: "TonBestFriend", msg: "on retient son souffle" }
+    ]
+  },
+  {
+    part: "Will it fit",
+    video: "4-no.mp4",
+    stopAt: 8,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 1,   // Non
+    reactions: [
+      { name: "TonBestFriend", msg: "8 secondes, tout se joue là" },
+      { name: "Spectateur_204", msg: "je n'ose pas parier" },
+      { name: "Nadia_92", msg: "gros suspense dans le chat" },
+      { name: "LucasXO", msg: "le chat est partagé en deux" }
+    ]
+  },
+  {
+    part: "Will it fit",
+    video: "5-yes.mp4",
+    stopAt: 8,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "LucasXO", msg: "on continue, on ne lâche rien" },
+      { name: "Nadia_92", msg: "la tension monte" },
+      { name: "Spectateur_812", msg: "j'ai misé, mais je ne dirai pas sur quoi" },
+      { name: "ChatOfficiel", msg: "miaou (je sors le pop-corn)" }
+    ]
+  },
+  {
+    part: "Will it fit",
+    video: "6-yes.mp4",
+    stopAt: 2,
+    title: "Will it fit ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "TonBestFriend", msg: "la dernière ! tout se joue ici" },
+      { name: "Nadia_92", msg: "2 secondes seulement, quel suspense" },
+      { name: "LucasXO", msg: "le score final est dans la balance" },
+      { name: "Spectateur_812", msg: "les mains moites devant l'écran" },
+      { name: "Spectateur_204", msg: "merci d'avoir joué avec nous" }
+    ]
+  },
+  {
+    // ===== Série "Did she like it ?" : 6 vidéos, Oui ou Non =====
+    // Fichiers en français (0-oui.mp4, 3-non.mp4...) pour ne pas avoir les mêmes noms que la série "Will it fit".
+    // Ici PAS de "stopAt" : elle peut regarder chaque vidéo en entier, avec les contrôles, et la
+    // vidéo recommence toute seule (loop). Le nom du fichier donne la réponse : yes = Oui, no = Non.
+    // correct : 0 = Oui (elle a dit avoir aimé), 1 = Non. Le texte de la carte de transition
+    // ("intro") est un brouillon : modifie-le comme tu veux.
+    part: "Did she like it ?",
+    intro: {
+      title: "Partie 4",
+      message: "nouveau jeu bb !\nplace au Did she like it ? Cette fois, tu peux regarder chaque vidéo en entier, en boucle.\nÀ ton avis, a-t-elle raconté en interview avoir aimé la scène ou non ?\nBonne chance !",
+      button: "C'est parti"
+    },
+    video: "0-oui.mp4",
+    loop: true,
+    title: "Did she like it ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "TonBestFriend", msg: "je la regarde trois fois pour être sûr" },
+      { name: "Nadia_92", msg: "écoute bien, les indices sont partout" },
+      { name: "LucasXO", msg: "moi, j'ai déjà ma théorie" },
+      { name: "ChatOfficiel", msg: "miaou (je ne dis rien)" }
+    ]
+  },
+  {
+    part: "Did she like it ?",
+    video: "1-oui.mp4",
+    loop: true,
+    title: "Did she like it ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "Spectateur_812", msg: "les interviews, ça ne ment jamais" },
+      { name: "Nadia_92", msg: "observer, c'est déjà répondre" },
+      { name: "LucasXO", msg: "je change d'avis à chaque boucle" },
+      { name: "Spectateur_204", msg: "le chat est partagé" }
+    ]
+  },
+  {
+    part: "Did she like it ?",
+    video: "2-oui.mp4",
+    loop: true,
+    title: "Did she like it ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "TonBestFriend", msg: "on tourne en boucle, comme la vidéo" },
+      { name: "LucasXO", msg: "le doute s'installe" },
+      { name: "Nadia_92", msg: "ça se joue sur un détail" },
+      { name: "ChatOfficiel", msg: "miaou (neutre)" }
+    ]
+  },
+  {
+    part: "Did she like it ?",
+    video: "3-non.mp4",
+    loop: true,
+    title: "Did she like it ?",
+    options: ["Oui", "Non"],
+    correct: 1,   // Non
+    reactions: [
+      { name: "Spectateur_204", msg: "celle-là est vicieuse" },
+      { name: "TonBestFriend", msg: "il ne faut pas se fier aux apparences" },
+      { name: "Nadia_92", msg: "tout le monde est perdu" },
+      { name: "LucasXO", msg: "les paris sont ouverts" }
+    ]
+  },
+  {
+    part: "Did she like it ?",
+    video: "4-oui.mp4",
+    loop: true,
+    title: "Did she like it ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "LucasXO", msg: "on s'accroche, c'est bientôt fini" },
+      { name: "TonBestFriend", msg: "je n'ose pas regarder le score" },
+      { name: "Nadia_92", msg: "chaque point compte" },
+      { name: "Spectateur_812", msg: "tension maximale dans le chat" }
+    ]
+  },
+  {
+    part: "Did she like it ?",
+    video: "5-oui.mp4",
+    loop: true,
+    title: "Did she like it ?",
+    options: ["Oui", "Non"],
+    correct: 0,   // Oui
+    reactions: [
+      { name: "TonBestFriend", msg: "dernière vidéo de cette série !" },
+      { name: "Nadia_92", msg: "tout se joue maintenant" },
+      { name: "LucasXO", msg: "le suspense est à son comble" },
+      { name: "Spectateur_204", msg: "encore une fois, on tourne en boucle" },
+      { name: "ChatOfficiel", msg: "miaou (ému)" }
+    ]
+  },
+
+  {
+    // ===== QUESTION BONUS : DOUBLE OU RIEN =====
+    // Toujours la dernière. Avant de la voir, une carte lui propose : tenter (si elle a juste, ses
+    // points sont DOUBLÉS ; si elle se trompe, elle perd TOUT) ou garder ses points (la question est
+    // alors sautée). Si elle n'a aucun point à doubler, la question n'est pas proposée.
+    // Dans le texte de la carte : {pts} = ses points, {double} = le double, {nom} = son surnom.
+    // /!\ "correct" : 0 = la 1re réponse, 1 = la 2e. À régler selon ce que montre la vidéo.
+    bonus: true,
+    part: "Bonus",
+    intro: {
+      title: "Double ou rien",
+      message: "dernière question {nom} !\nTu as {pts} points.\nBonne réponse : {double} points.\nMauvaise réponse : plus rien.\nTu tentes ?",
+      button: "Je tente",
+      skip: "Je garde mes points"
+    },
+    video: "bonus.mp4",
+    stopAt: 15,
+    title: "Double ou rien : que va-t-il se passer ?",
+    options: ["Il va jouir en premier", "Elle va s'étouffer en premier"],
+    correct: 0,
+    reactions: [
+      { name: "TonBestFriend", msg: "DOUBLE OU RIEN 😱" },
+      { name: "Nadia_92", msg: "j'ai les mains qui tremblent" },
+      { name: "LucasXO", msg: "tout ou rien, c'est ça le vrai jeu" },
+      { name: "Spectateur_812", msg: "on retient notre souffle" },
+      { name: "ChatOfficiel", msg: "miaou (en panique)" }
+    ]
+  }
+];
+
+/* ================================================================
+   CHAT D'AMBIANCE — des commentaires de faux spectateurs qui tombent en continu, comme dans
+   un vrai live : le chat ralentit pendant les vidéos mais ne s'arrête JAMAIS. Ajoute, retire ou
+   modifie les messages comme tu veux (les fautes de frappe sont voulues !). Un message n'est pas
+   redit avant une bonne centaine d'autres.
+   Dans un message, ces mots entre accolades sont remplacés par la vraie valeur :
+   {heure} l'heure qu'il est · {pts} ses points · {left} les points qui manquent au prochain
+   palier · {next} le numéro de ce palier · {q} la question en cours · {total} le nombre de questions ·
+   {nom} un de ses surnoms (bb, chaton, au hasard).
+   (Un message avec {pts} ou {left} n'est dit que s'il a du sens à ce moment-là.)
+================================================================ */
+
+// Le rythme, en millisecondes : [le plus court, le plus long] entre 2 messages.
+const AMBIENT_RATE = {
+  normal:   [1400, 4600],  // en temps normal : un message toutes les 1,4 à 4,6 secondes
+  watching: [3200, 8400],  // pendant qu'une vidéo joue : le chat ralentit (3,2 à 8,4 s) mais ne s'arrête jamais
+  hype:     [600, 2000]    // juste après sa réponse (environ 9 secondes) : ça s'emballe
+};
+
+// Les pseudos des faux spectateurs (ceux des "reactions" des épisodes en font partie).
+const AMBIENT_NAMES = [
+    "xX_Kévin_Xx",
+    "mamie_gaming",
+    "LeBgDu94",
+    "pasdidée",
+    "jean-michel_",
+    "Océane07",
+    "PtitLoup",
+    "Thomas.M",
+    "Zoé🌸",
+    "Maxime_off",
+    "Camille.d",
+    "ClemClem",
+    "Dylan_FR",
+    "LaGalère",
+    "Sarah_x3",
+    "TeamChocolatine",
+    "pain_au_chocolat",
+    "BigJul",
+    "Manon.b",
+    "Théo2005",
+    "gros_chat_roux",
+    "Inès_",
+    "R4ph",
+    "MimiLaSouris",
+    "bobby_le_vrai",
+    "Anaïs✨",
+    "kiki_du_13",
+    "Nono",
+    "SuperLoulou",
+    "Lucas.ds",
+    "Margot",
+    "Hugo_gaming",
+    "Chachou",
+    "titi75",
+    "Sofiane",
+    "Yanis_",
+    "LaPetiteLulu",
+    "ZZ_top_ZZ",
+    "Elodie_85",
+    "Baptiste.l",
+    "ChefCuistot",
+    "CaféCrème",
+    "Mme_Michu",
+    "mr_baguette",
+    "Spectateur_137",
+    "Spectateur_466",
+    "TonBestFriend",
+    "Nadia_92",
+    "LucasXO",
+    "Spectateur_812",
+    "Spectateur_204",
+    "ChatOfficiel"
+  ];
+
+const AMBIENT_CHAT = {
+  hello: [
+    "coucou tout le monde 👋",
+    "premier !! 🥇",
+    "bonsoir sa va ?",
+    "salut les gens",
+    "cé quoi ce live ?? 😂",
+    "jarrive just a temps ?",
+    "yo yo yo 🔥",
+    "on a commencé ?",
+    "bonjour bonjour ☀️",
+    "enfin le live !! 🎉",
+    "tou le monde est la ?",
+    "je suis la je suis la 🙋‍♀️",
+    "slt tt le monde",
+    "ça y est jsuis installé avec mes chips 🍿",
+    "bonsoir tous le monde !!"
+  ],   // les tout premiers messages, quand le live commence
+
+  generic: [
+    "ptdrrr 😂😂",
+    "jpp 💀",
+    "cé trop bien ce live 😍",
+    "qui regarde encore ?? 🙋",
+    "le chat est en feu 🔥🔥",
+    "j'ai les mains moites là 😅",
+    "oklm devant mon écran 🍿",
+    "sa va trop vite pour moi 😭",
+    "mdrrr la tension",
+    "la musique d'ambiance elle manque 🎶",
+    "jamé vu sa 😳",
+    "c'est mieu que la télé honnêtement",
+    "je mange des chips en regardant 🥔😂",
+    "moi j'attend que sa 👀",
+    "on se croirait dans un jeu télé 📺",
+    "le suspense me tue 💀",
+    "qui a le son ? 🔊",
+    "mon chat vient de passer sur le clavier 🐈",
+    "ça lag chez moi ou pas ?",
+    "t'es la meilleure ❤️",
+    "allez la championne 🏆",
+    "mdr j'adore l'ambiance ici",
+    "vous avez vu le nombre de viewers ?? 😮",
+    "on est combien la ? 👀",
+    "j'ai invité ma cousine elle arrive 😂",
+    "ma mère me demande ce que je regarde 😬",
+    "chut j'écoute 🤫",
+    "ça va chauffer 🔥",
+    "je sens que c'est la bonne soirée 🌙",
+    "vite vite vite ⏩",
+    "ça c'est du contenu de qualité 👌",
+    "bravo pour l'organisation 👏",
+    "celui qui a fait ce site mérite une médaille 🏅",
+    "BB mérite un câlin 🥰",
+    "elle gère trop bien 😌",
+    "faut pas me parler je suis concentré 🧐",
+    "j'ai plus d'ongles à ronger 😬",
+    "t'as vu le niveau ?? 😳",
+    "les 'je savais' arrivent dans 3 2 1 😂",
+    "c'est ouf ce live 🤯",
+    "pk sa me stress autant 😅",
+    "jvais chercher du pop corn 🍿 je reviens",
+    "je suis de retour 🍿 j'ai raté quoi ?",
+    "on lache rien !!! 💪",
+    "ces tellement bien fait 👏",
+    "j'ai mis mon tel en charge pr tenir 🔋😂",
+    "bien joué l'équipe 👏",
+    "quelqu'un peu me dire ou on en est ?",
+    "oups j'ai spoilé personne j'espère 🙊",
+    "qui est la pour le suspense ?? ✋",
+    "ah ouai quand même 😳",
+    "il est {heure} et je suis encore la 😭",
+    "j'ai mal aux zygomatiques 😂",
+    "au moin on s'ennuie pas 😂",
+    "j'adore les commentaires du chat 😂😂",
+    "qui a dit que les lives c'était nul ? 🙄",
+    "je valide à 100% 💯",
+    "c'est addictif ce jeu ma parole 😵‍💫",
+    "on dit merci qui ? 🙏",
+    "l'ambiance est incroyable 🔥",
+    "frr je suis dans le canap avec mon plaid 🛋️",
+    "la meilleure soirée de ma semaine 🥹",
+    "pensez a boire de l'eau les amis 💧",
+    "stop je peut plus 😂😂😂",
+    "mdr le stress qu'on se met pr rien 😂",
+    "gg 👏",
+    "wesh c'est chaud 🥶",
+    "bientôt 1000 viewers je le sens 📈",
+    "on a la meilleure ambiance de tout internet 😎",
+    "elle est concentrée la, ça se voit 🧠",
+    "c'est ou le bouton pour mettre plus de coeurs ? ❤️❤️❤️",
+    "mdrrr quel casting",
+    "alé alé alé 🎵",
+    "je ne regrette pas d'etre venu 😌",
+    "déjà {pts} points 👀",
+    "{pts} points ?? elle gère 😳",
+    "plus que {left} pt(s) pour le palier {next} 🔥",
+    "question {q} sur {total}, on tient le bon bout 💪",
+    "{q}/{total} déjà ?? le temps passe vite ⏳",
+    "je suis en train de manger mon clavier tellement c'est tendu 😂",
+    "ça fait du bien de rire un bon coup 😭😂",
+    "c'est le live le plus sérieux du monde (non) 🤡",
+    "moi j'ai déja mal au ventre 😬",
+    "jvous jure j'ai pas bougé depuis 1h 🪑",
+    "qui veut des chips ? 🍟",
+    "y'a de l'ambiance dans le chat ce soir 🎉",
+    "wouhou 🎊",
+    "si je dis que j'ai rien compris vous me jugez ? 😅",
+    "je sais pas ce que je regarde mais j'adore 😂",
+    "on est bien la 🥹",
+    "mdr les pseudos dans le chat 😂",
+    "vous croyez qu'elle nous entend ? 👂",
+    "coucou maman si tu regardes 👋😂",
+    "c'est un chat ou une fête ici ? 🥳",
+    "ptite pensée pour ceux qui dorment pendant que nous on s'amuse 😴😂",
+    "j'ai les yeux qui piquent mais je tiens bon 🥱",
+    "pas de pause pipi on rate tout 🚽😂",
+    "allez {nom} !! 💪",
+    "{nom} gère trop bien 😎",
+    "on t'aime {nom} ❤️",
+    "courage {nom} 🙏",
+    "{nom} est la reine du live 👑",
+    "coucou {nom} 👋 on est avec toi",
+    "{nom} t'es incroyable 🤩",
+    "t'inquiète pas {nom} on est la 🫶",
+    "tout le chat est pour toi {nom} 🔥",
+    "{nom} on croit en toi !!"
+  ],   // n'importe quand
+
+  watching: [
+    "je regarde bien bien 👀",
+    "qui a vu un indice ??",
+    "j'ai rien vu moi 😭 on peut revoir ?",
+    "zoom zoom zoom 🔍",
+    "je note tout dans mon carnet 📝",
+    "attention c'est pas fini 👀",
+    "regardez bien les détails !!",
+    "moi je regarde que dalle j'ai peur 🙈",
+    "ça avance trop vite 😵",
+    "le son pitié 🔊🙏",
+    "mettez le son svp",
+    "j'entend rien chez moi 😭",
+    "ptdrrr j'ai cru que c'était fini",
+    "chut chut chut 🤫🤫",
+    "elle regarde bien j'espère 😂",
+    "ça tourne ça tourne 🎥",
+    "mon cerveau est en train de calculer 🧠⚙️",
+    "oula ça sent pas bon 😬",
+    "ça sent le piège 🪤",
+    "je vois une chose mais je dis rien 🤐",
+    "t'as vu à 10 secondes ?? 👀",
+    "j'ai mis pause dans ma tête ⏸️",
+    "dommage que j'ai pas de ralenti 😭",
+    "on se concentre tous 🧐",
+    "l'image est trop belle 📸",
+    "quelqu'un a compris ce qui se passe ?? 😅",
+    "c'est la qualité ça 👌",
+    "j'ose pas cligner des yeux 😳",
+    "je suis scotché 😶",
+    "le chat est silencieux d'un coup, tout le monde regarde 👀",
+    "ça dure longtemps encore ? 😅",
+    "moi je pari sur A direct",
+    "je change d'avis toutes les 2 secondes 😂",
+    "ce moment ou tout le monde retient son souffle 😮‍💨",
+    "j'ai rater le début 😭 c'est quoi la question ?",
+    "on voit bien là non ?",
+    "pas facile cette video 😬",
+    "elle va trouver j'en suis sur ✌️",
+    "stop j'ai le coeur qui bat vite 💓",
+    "pitié que sa finisse bien 🙏",
+    "j'attend la suite avec impatience ⏳",
+    "la tension est palpable ⚡",
+    "moi je lis pas le chat je regarde la video 👁️",
+    "ah bah non je vois pas ✋",
+    "qui regarde sur téléphone ? 📱",
+    "qui regarde sur grand écran ? 📺 sans honte",
+    "wow wow wow 😮",
+    "j'ai compris mais je dis rien 🤫",
+    "👀👀👀👀👀",
+    "la caméra elle bouge ou c'est moi ?",
+    "bon, qui prend les paris ? 🎲",
+    "je crois que j'ai vu un truc la !!",
+    "le silence avant la tempête 🌩️",
+    "ptite pensée pour ceux qui regardent au boulot 😂💼",
+    "regardez pas le chat regardez la vidéo !!",
+    "j'en peux plus 😂 c'est trop bien",
+    "j'ai ma petite idée mais je garde ça pour moi 🤭",
+    "faut tout regarder jusqu'au bout 🧐",
+    "je mets pas pause j'ai trop peur de rater un truc 😬",
+    "mdrr j'ai la bouche ouverte depuis 10 secondes 😮",
+    "là ça devient intéressant 🍿",
+    "mes yeux ils clignent plus 🥲",
+    "ça va trop loin pour mon petit coeur 💔😂",
+    "la vidéo me hypnotise 🌀",
+    "{nom} regarde bien 👀",
+    "{nom} t'as vu ça ?? 😳",
+    "concentre toi {nom} 🧐"
+  ],   // pendant qu'une vidéo joue
+
+  waiting: [
+    "allez réponds !! ⏰",
+    "tic tac tic tac ⏰",
+    "elle hésite mdrrr 😂",
+    "team A 🙋‍♂️",
+    "team B 🙋‍♀️",
+    "A A A A A A",
+    "B B B B B B",
+    "moi c'est A et je suis sur 😤",
+    "c'est B j'en met ma main a couper ✂️",
+    "faut pas hésiter, 1er réflexe !!",
+    "ton instinct est toujours bon 🔮",
+    "on te fait confiance 🙏",
+    "écoute ton coeur ❤️",
+    "si elle se trompe je mange mon chapeau 🎩",
+    "elle a déja la réponse dans la tête 🧠",
+    "ptdrrr elle réfléchi trop",
+    "ne l'écoutez pas ! elle sait ce qu'elle fait 😎",
+    "quelqu'un a un avis ? 🤔",
+    "le chat est divisé en 2 😂",
+    "la sagesse du chat dit : A 🧙",
+    "moi je dis B sa se voit",
+    "on a pas toute la journée 😂",
+    "le suspense est insoutenable 😱",
+    "c'est ma réponse ou la sienne qui compte ? 🤔",
+    "pitié pas de pression 🥲",
+    "tu peux le faire 💪",
+    "j'ai mis 5 euros sur A 💸",
+    "personne ne sait mais tout le monde a un avis 😂",
+    "j'ai toujours raison au 1er réflexe 😌",
+    "A ou B... A ou B... 🎶",
+    "elle va prendre le temps qu'il faut 🧘",
+    "wsh décide toi 😂",
+    "au pire on fait pile ou face 🪙",
+    "dis nous ce que tu pense !!",
+    "on respecte son temps de réflexion 🙏😂",
+    "t'es nerveuse ou pas ? 😏",
+    "je sens que la réponse va tous nous surprendre 👀",
+    "la pression sur ses épaules 😳",
+    "je croise les doigts pour elle 🤞",
+    "on a confiance 💖",
+    "allez on valide !! ✅",
+    "hmm hmm hmm 🤔🤔🤔",
+    "je vote pour le bouton de gauche 🖱️",
+    "elle clique ? elle clique pas ? 😂",
+    "le doigt est au dessus du bouton 👆😳",
+    "bon moi j'ai fait mon choix 😌",
+    "mdr j'ai changer d'avis 3 fois",
+    "go go go 🚀",
+    "la patience est une vertu 🧘‍♀️",
+    "on retient notre souffle 😶",
+    "allez courage on y croit 🌟",
+    "elle va nous faire un suspense jusqu'au bout 😂",
+    "moi j'ai ma réponse mais je la dis pas 🤐",
+    "tic... tac... tic... tac... 🕰️",
+    "réfléchis bien {nom} 🧠",
+    "écoute ton instinct {nom} 🔮",
+    "{nom} on croit en toi 🙏",
+    "allez {nom}, plus qu'un clic 🖱️",
+    "{nom} fais nous confiance, vas-y 😂"
+  ],   // quand elle réfléchit (vidéo arrêtée ou question affichée)
+
+  rank: [
+    "le classement c'est de la haute voltige 😂",
+    "faut bien réfléchir à l'ordre 🧠",
+    "moi j'aurai mis l'inverse 😅",
+    "ça se joue a un poil près 🤏",
+    "elle a une stratégie je le sens 📐",
+    "glisse les cartes avec élégance 💅",
+    "mdr le temps qu'elle déplace les cartes 😂",
+    "chaque carte compte 🃏",
+    "tu peux changer d'avis a volonté 🔁",
+    "ça sent le classement controversé 🔥",
+    "le débat est ouvert dans les commentaires 🗣️",
+    "je veux voir le résultat !! 👀",
+    "elle réfléchit comme une pro 🎓",
+    "et si c'était un piège ? 🤔",
+    "je range les cartes dans ma tête 🗂️",
+    "jamais d'accord avec mes potes sur ce classement 😂",
+    "mon top 1 est pas le même que le sien je crois 😬",
+    "faut y aller au feeling 🧭",
+    "oups j'ai changé 4 fois mon classement mentalement 😵",
+    "le 1er est facile le reste moins 😅",
+    "on regarde la 1ère place avec intérêt 🥇",
+    "c'est la couronne qui nous fait rêver 👑",
+    "tout le monde veut voir la couronne 👑👑",
+    "pitié que la 1ère soit bonne 🙏",
+    "valide enfin !! ✅",
+    "elle hésite entre 2 cartes là 😂",
+    "classement difficile mais jouable 💪",
+    "on a droit a plusieurs essais alors tout va bien 😌",
+    "pas de stress, tu peux recommencer 🔄",
+    "belle manipulation des cartes 👌",
+    "il me faut un tableau pour suivre 📋",
+    "vous trouvez pas que c'est dur ? 🥲",
+    "mdr elle fait son tri comme à l'école 📚",
+    "mon cerveau a fait 404 🧠💥",
+    "allez la 1ère place !!! 🥇",
+    "j'ai ma petite idée du classement mais chut 🤫",
+    "le plus dur c'est la 3eme place 😬",
+    "elle va tout classer en 2 secondes tkt 😎",
+    "ça glisse bien sur l'écran 👆",
+    "c'est quasi un jeu de société 🎲",
+    "{nom} range bien ses cartes 🃏",
+    "{nom} va tout classer en 2 secondes 😎"
+  ],   // pendant les questions de classement
+
+  after: [
+    "alors verdict ?? 👀",
+    "je savais !!! 😎",
+    "j'avais dit A non ? 😂",
+    "mdr j'ai tout faux 😭",
+    "bien joué quand même 👏",
+    "on applaudit 👏👏👏",
+    "c'était serré 😮‍💨",
+    "je l'avais senti venir 🧐",
+    "respect quand même 🙌",
+    "ahah le suspense valait le coup 😂",
+    "next !! ⏭️",
+    "on enchaine !! 🚀",
+    "j'ai le coeur qui bat 💓",
+    "ça mérite un applaudissement 👏",
+    "j'en reviens pas 😳",
+    "la vidéo continue, regardez bien la suite 👀",
+    "ah ouai voila la réponse 🤯",
+    "j'ai tout compris maintenant 💡",
+    "mdrrr la tête de ceux qui avaient parié 😂",
+    "ptdrrr j'ai mis 5€ sur le mauvais 💸",
+    "bien ou pas bien ? 🤔",
+    "ça c'est du spectacle 🎭",
+    "le chat explose après cette réponse 🔥🔥",
+    "mdr les 'je savais' qui fusent 😂",
+    "je valide la réponse 100% ✅",
+    "next next next",
+    "on passe a la suite ! ➡️",
+    "pas mal du tout 😌",
+    "ahh enfin on sait !!! 🥳",
+    "gg 👏👏",
+    "bravo pr le courage 😂",
+    "on respire 😮‍💨",
+    "c'était facile en fait 🙄😂",
+    "c'était dur en fait 😅",
+    "meilleur moment du live 🥹",
+    "ouf 😅",
+    "qui a eu bon ? 🙋",
+    "je suis dégouté j'étais sur 😭",
+    "bravo {nom} 👏",
+    "{nom} la championne 🏆",
+    "{nom} nous a bluffé 😮",
+    "c'est ça {nom} !! 🙌"
+  ],   // juste après sa réponse
+
+  reactions: [
+    "😂😂😂",
+    "MDRRRR",
+    "ptdrrr",
+    "💀💀💀",
+    "🔥🔥🔥",
+    "👀👀👀",
+    "OUIIIII",
+    "nonnnn 😭",
+    "A !!!",
+    "B !!!",
+    "go go go",
+    "allééééé",
+    "wooow",
+    "🙌🙌🙌",
+    "bravo",
+    "GG",
+    "jpp",
+    "oh la la 😳",
+    "hihihi",
+    "chaud chaud chaud",
+    "yesss",
+    "❤️❤️❤️",
+    "👏👏👏",
+    "STOOOP 😂",
+    "sérieux 😭",
+    "incroyable",
+    "ouiii",
+    "enorme",
+    "😱😱",
+    "🤣🤣"
+  ],   // courtes réactions, dites en rafale (2 ou 3 d'un coup)
+
+  // Selon la série en cours (le nom doit être le même que le champ "part" des épisodes)
+  parts: {
+    "Top 4": [
+      "le top 4 c'est toujours un sujet qui divise 😂",
+      "moi mon top 1 est évident 🥇",
+      "chaque classement a sa polémique 🔥",
+      "on va se disputer dans les commentaires 😂",
+      "les statistiques ça ne ment jamais 📊",
+      "elle va faire un sans faute ou pas ? 🤔",
+      "hâte de voir les cartes 👀",
+      "on regarde les cartes avec attention 🧐",
+      "j'ai honte de dire que j'ai mon avis 😅",
+      "elle connait ses classiques je pense 📚",
+      "des milliers d'heures de recherche ça se sent 🧠",
+      "l'expérience ça ne s'invente pas 😌",
+      "c'est du niveau doctorat 🎓",
+      "recherches approfondies détectées 🔎😂",
+      "ça va se jouer à la 3eme place 😬",
+      "on parie qu'elle trouve en moins de 3 essais ? 🎲",
+      "toujours d'attaque 💪",
+      "ce classement mérite une thèse 😂",
+      "le jury est attentif 🧑‍⚖️",
+      "les spécialistes ont parlé 🎤",
+      "elle a le CV pour cette question 📄😂"
+    ],
+    "Qui va jouir ?": [
+      "elle ou lui ? 🤔",
+      "moi je dis elle direct 😤",
+      "moi je dis lui, 100% 😎",
+      "c'est pas évident cette question 😅",
+      "il faut bien analyser les indices 🔎",
+      "quelqu'un a un indice ? 👀",
+      "la réponse sera dans la suite 🧐",
+      "la video s'arrete avant la réponse c'est cruel 😭",
+      "j'adore cette série de questions 😂",
+      "on a vu pire comme jeu 😂",
+      "l'instinct féminin ça existe ✨",
+      "ça se joue sur un détail je pense 🔍",
+      "regardez bien les réactions 👀",
+      "faut regarder les expressions 🧠",
+      "team elle 🙋‍♀️",
+      "team lui 🙋‍♂️",
+      "y'a pas de mauvaise réponse sauf la mauvaise 🙃",
+      "dur dur 😬",
+      "personne n'est d'accord dans le chat 😂",
+      "ça c'est un casse tête 🧩",
+      "elle va nous surprendre je le sens 😏",
+      "mdr le débat en direct",
+      "c'est la question à 1000 points 💰",
+      "j'ai un doute atroce 😖",
+      "pas facile quand même 😅"
+    ],
+    "Will it fit": [
+      "ça va rentrer ou pas ?? 👀",
+      "ça rentre pas c'est sur 😂",
+      "ça va passer ou ça va coincer ? 😳",
+      "moi je dis oui 🙋",
+      "moi je dis non 🙅",
+      "faut avoir le compas dans l'oeil 📏",
+      "elle a l'oeil, je lui fait confiance 👁️",
+      "on se fie aux proportions 📐",
+      "c'est de la géométrie tout ça 😂",
+      "mdr le calcul mental en direct 🧮",
+      "le moment ou on estime les distances 😂",
+      "je suis nul en maths mais j'ai un avis 😅",
+      "un oeil d'expert svp 🧐",
+      "on mise sur l'instinct ✌️",
+      "ça passe ou ça casse 😂",
+      "réponse dans 3 2 1 ⏳",
+      "j'ai un mauvais pressentiment 😬",
+      "j'ai un bon pressentiment 😌",
+      "ce jeu est complètement fou 🤪",
+      "qui a eu l'idée de ce jeu ?? 😂😂",
+      "c'est pas moi qui vais juger 🙈",
+      "j'ose pas regarder 🫣",
+      "ptdrrr la tête que je fais devant l'écran 😂",
+      "on mesure à vue de nez 👃📏",
+      "c'est un oui pour moi 👍"
+    ],
+    "Did she like it ?": [
+      "a t-elle aimé ou pas ? 🤔",
+      "faut écouter ce qu'elle dit en interview 🎤",
+      "les interviews c'est jamais clair 😂",
+      "oui oui oui 👍",
+      "non non non 👎",
+      "je me fie à sa tête 🙃",
+      "les expressions disent tout 🧠",
+      "j'ai un doute 🧐",
+      "la vidéo tourne en boucle c'est hypnotisant 😵‍💫",
+      "pause pause on réfléchit ⏸️",
+      "regardez ses réactions en détail 🔎",
+      "elle a pas l'air convaincue la non ? 🤨",
+      "elle a l'air ravie la ! 😍",
+      "difficile de savoir avec les acteurs 🎭",
+      "ils sont payé pour faire semblant non ? 🤔",
+      "enfin un jeu ou on peut rewatch autant qu'on veut 🔁",
+      "je regarde pour la 4eme fois 😂",
+      "quelqu'un connait l'interview ? 🎙️",
+      "faut avoir l'oeil de lynx 🐆",
+      "moi je sens que c'est un oui 😌",
+      "moi je sens que c'est un non 😬",
+      "indice : regardez son regard 👀",
+      "ça se voit non ? 🤷‍♀️",
+      "c'est un piège j'en suis sur 🪤",
+      "quel suspense pour une réponse oui/non 😂"
+    ]
+  }
+};
+
+/* ================================================================
+   À PARTIR D'ICI : logique du site. Tu n'as normalement pas besoin
+   de modifier quoi que ce soit en dessous — tout le contenu se règle
+   dans la "ZONE À MODIFIER" tout en haut de ce script.
+================================================================ */
+
+// Chaque pseudo du chat reçoit toujours la même couleur (calculée à partir
+// des lettres de son nom), pour que "BB" ait toujours la même couleur
+// d'un épisode à l'autre par exemple. Ajoute des paires {bg, fg} ici si tu
+// veux plus de variété de couleurs d'avatar.
+const AVATAR_COLORS = [
+  { bg:"#7F77DD", fg:"#CECBF6" }, { bg:"#1D9E75", fg:"#9FE1CB" },
+  { bg:"#D85A30", fg:"#F5C4B3" }, { bg:"#D4537E", fg:"#F4C0D1" },
+  { bg:"#378ADD", fg:"#B5D4F4" }, { bg:"#639922", fg:"#C0DD97" },
+  { bg:"#BA7517", fg:"#FAC775" }
+];
+function colorFor(name){
+  let h = 0;
+  for (let i=0;i<name.length;i++) h = (h*31 + name.charCodeAt(i)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[h];
+}
+
+const LETTERS = ["A","B","C","D"]; // lettres affichées devant chaque réponse
+const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
+// Petites icônes facultatives pour les cartes d'une question "classement"
+// (des exemples : chat, capybara, corgi, loutre — aucune question ne s'en sert pour
+// l'instant) — de simples pastilles
+// colorées dessinées à la main, dans le même esprit que les avatars du chat.
+// La clé (ex. "cat") doit correspondre au "id" d'un item dans EPISODES ;
+// un item sans icône ni image affiche juste son nom.
+const RANK_ICONS = {
+  cat: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#D85A30"/><path d="M28 30 L36 14 L44 32 Z" fill="#F5C4B3"/><path d="M72 30 L64 14 L56 32 Z" fill="#F5C4B3"/><circle cx="38" cy="52" r="4.5" fill="#1d1218"/><circle cx="62" cy="52" r="4.5" fill="#1d1218"/><path d="M46 62 L54 62 L50 68 Z" fill="#1d1218"/><path d="M50 70 Q44 74 38 72" stroke="#1d1218" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M50 70 Q56 74 62 72" stroke="#1d1218" stroke-width="2" stroke-linecap="round" fill="none"/></svg>',
+  capybara: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#BA7517"/><ellipse cx="50" cy="58" rx="30" ry="24" fill="#E3A542"/><circle cx="26" cy="30" r="8" fill="#BA7517"/><circle cx="74" cy="30" r="8" fill="#BA7517"/><circle cx="38" cy="52" r="4" fill="#1d1218"/><circle cx="62" cy="52" r="4" fill="#1d1218"/><ellipse cx="50" cy="70" rx="10" ry="6" fill="#8a5a12"/><circle cx="46" cy="68" r="1.6" fill="#1d1218"/><circle cx="54" cy="68" r="1.6" fill="#1d1218"/></svg>',
+  corgi: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#378ADD"/><path d="M22 34 L34 10 L42 36 Z" fill="#F3D9B1"/><path d="M78 34 L66 10 L58 36 Z" fill="#F3D9B1"/><ellipse cx="50" cy="56" rx="26" ry="22" fill="#F3D9B1"/><circle cx="39" cy="52" r="4" fill="#1d1218"/><circle cx="61" cy="52" r="4" fill="#1d1218"/><ellipse cx="50" cy="66" rx="9" ry="7" fill="#fff"/><circle cx="50" cy="64" r="3.4" fill="#1d1218"/></svg>',
+  otter: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#1D9E75"/><circle cx="50" cy="46" r="26" fill="#BFE7D8"/><circle cx="30" cy="30" r="6" fill="#1D9E75"/><circle cx="70" cy="30" r="6" fill="#1D9E75"/><circle cx="41" cy="44" r="3.6" fill="#1d1218"/><circle cx="59" cy="44" r="3.6" fill="#1d1218"/><path d="M50 50 L46 56 L54 56 Z" fill="#1d1218"/><ellipse cx="38" cy="70" rx="7" ry="9" fill="#BFE7D8"/><ellipse cx="62" cy="70" rx="7" ry="9" fill="#BFE7D8"/></svg>'
+};
+
+// "state" retient où on en est dans le quiz (utilisé partout dans le script,
+// pas besoin d'y toucher directement). "el" est un raccourci vers chaque
+// élément du HTML, pour ne pas avoir à écrire document.getElementById()
+// à chaque fois.
+// Nombre de vraies questions (sans la question bonus) et score maximum possible (la question bonus peut doubler).
+const REGULAR_COUNT = EPISODES.filter(function(e){ return !e.bonus; }).length;
+const MAX_POINTS = REGULAR_COUNT * (EPISODES.some(function(e){ return e.bonus; }) ? 2 : 1);
+function randomNick(){ return PLAYER_NICKNAMES.length ? PLAYER_NICKNAMES[Math.floor(Math.random() * PLAYER_NICKNAMES.length)] : "bb"; }
+
+const state = { streak: 0, bestStreak: 0, streakNote: 0, log: [], rankTries: [], startedAt: 0, nick: "", code: "", attemptSent: false, bonusState: "", current: 0, score: 0, viewers: 2, answered: false, slotItems: [null,null,null,null], rankPoolOrder: [], rankAttempts: 0, retryCursor: 0, confirmed: {}, goldActive: false, goldCount: 0, soundOn: false, soundConfirm: false, stopAt: null, interludeOpen: false, videoReady: false, tiersUnlocked: 0, tierOpen: false };
+
+const el = {
+  start: document.getElementById("screen-start"),
+  quiz: document.getElementById("screen-quiz"),
+  end: document.getElementById("screen-end"),
+  startBtn: document.getElementById("start-btn"),
+  epBadge: document.getElementById("ep-badge"),
+  video: document.getElementById("ep-video"),
+  videoStage: document.getElementById("video-stage"),
+  videoWrap: document.getElementById("video-wrap"),
+  soundNudge: document.getElementById("sound-nudge"),
+  soundTitle: document.getElementById("sound-nudge-title"),
+  soundSub: document.getElementById("sound-nudge-sub"),
+  videoCtl: document.getElementById("video-ctl"),
+  scrubber: document.getElementById("scrubber"),
+  scrub: document.getElementById("scrub"),
+  scrubPlay: document.getElementById("scrub-play"),
+  scrubTime: document.getElementById("scrub-time"),
+  answerBanner: document.getElementById("answer-banner"),
+  videoReplay: document.getElementById("video-replay"),
+  interlude: document.getElementById("interlude"),
+  interludeCard: document.getElementById("interlude-card"),
+  interludeTitle: document.getElementById("interlude-title"),
+  interludeHost: document.getElementById("interlude-host"),
+  interludeAvatar: document.getElementById("interlude-avatar"),
+  interludeLines: document.getElementById("interlude-lines"),
+  interludeBtn: document.getElementById("interlude-btn"),
+  tiers: document.getElementById("tiers"),
+  tiersPts: document.getElementById("tiers-pts"),
+  tiersTrack: document.getElementById("tiers-track"),
+  tiersFill: document.getElementById("tiers-fill"),
+  tierPop: document.getElementById("tierpop"),
+  tierEmblem: document.getElementById("tierpop-emblem"),
+  tierNum: document.getElementById("tierpop-num"),
+  tierTitle: document.getElementById("tierpop-title"),
+  tierSub: document.getElementById("tierpop-sub"),
+  tierReward: document.getElementById("tierpop-reward"),
+  tierBtn: document.getElementById("tierpop-btn"),
+  tierConfetti: document.getElementById("tierpop-confetti"),
+  reactionLayer: document.getElementById("reaction-layer"),
+  videoFallback: document.getElementById("video-fallback"),
+  videoPathHint: document.getElementById("video-path-hint"),
+  qTitle: document.getElementById("q-title"),
+  options: document.getElementById("options"),
+  rankStage: document.getElementById("rank-stage"),
+  rankSlots: document.getElementById("rank-slots"),
+  rankPool: document.getElementById("rank-pool"),
+  rankValidateBtn: document.getElementById("rank-validate-btn"),
+  resultLine: document.getElementById("result-line"),
+  nextBtn: document.getElementById("next-btn"),
+  chatList: document.getElementById("chat-list"),
+  viewerCount: document.getElementById("viewer-count"),
+  scoreLine: document.getElementById("score-line"),
+  scoreMax: document.getElementById("score-max"),
+  tkName: document.getElementById("tk-name"),
+  tkCode: document.getElementById("tk-code"),
+  tkDate: document.getElementById("tk-date"),
+  pyramid: document.getElementById("end-pyramid"),
+  endGift: document.getElementById("end-gift"),
+  endGap: document.getElementById("end-gap"),
+  streak: document.getElementById("streak"),
+  streakN: document.getElementById("streak-n"),
+  interludeSkip: document.getElementById("interlude-skip"),
+  finalNote: document.getElementById("final-note"),
+  replayBtn: document.getElementById("replay-btn")
+};
+
+// Bascule l'écran visible : "start", "quiz" ou "end".
+function showScreen(name){
+  [el.start, el.quiz, el.end].forEach(function(s){ s.classList.remove("active"); });
+  ({ start: el.start, quiz: el.quiz, end: el.end })[name].classList.add("active");
+}
+
+// Le chat "suit" ses derniers messages : il reste collé en bas, y compris quand sa taille change
+// (le bouton "suivant" apparaît en dessous et rétrécit la zone de chat, les contrôles de la vidéo,
+// les polices qui finissent de charger...), de sorte que les nouveaux messages sont toujours visibles.
+// Il n'arrête de la suivre QUE si c'est ELLE qui remonte dans le chat avec le doigt (ou la molette) :
+// un défilement déclenché par le code ou par un changement de mise en page est ignoré (sinon, juste
+// après sa réponse, le message qui fait défiler le chat et le bouton "suivant" qui le rétrécit dans
+// la foulée suffisaient à lui faire croire qu'elle avait remonté le chat). Si elle ne touche plus au
+// chat pendant 9 secondes, le suivi reprend tout seul ; un message de BB, une réponse ou une
+// nouvelle question le remettent aussi tout de suite.
+let chatFollow = true;
+let chatUserUntil = 0;   // jusqu'à cet instant, un défilement est considéré comme venant d'elle
+let chatResumeAt = 0;    // si elle a remonté le chat, le suivi reprend tout seul à partir de cet instant
+const CHAT_MAX_ROWS = 240; // nombre maximum de lignes gardées dans le chat
+function scrollChatToBottom(){ el.chatList.scrollTop = el.chatList.scrollHeight; }
+function chatShouldFollow(){
+  if (!chatFollow && Date.now() > chatResumeAt) chatFollow = true;
+  return chatFollow;
+}
+// Garde le chat collé en bas pendant "ms" millisecondes : la mise en page bouge encore un peu juste
+// après un message ou une réponse.
+let chatSettleUntil = 0;
+let chatSettleRaf = 0;
+function keepChatAtBottom(ms){
+  chatSettleUntil = Math.max(chatSettleUntil, Date.now() + ms);
+  if (chatSettleRaf || !window.requestAnimationFrame) return;
+  (function loop(){
+    chatSettleRaf = 0;
+    if (chatShouldFollow()) scrollChatToBottom();
+    if (Date.now() < chatSettleUntil) chatSettleRaf = requestAnimationFrame(loop);
+  })();
+}
+function markUserScroll(){
+  chatUserUntil = Date.now() + 1500;
+  chatResumeAt = Date.now() + 9000;
+}
+["touchstart", "touchmove", "touchend", "wheel", "pointerdown", "keydown"].forEach(function(name){
+  el.chatList.addEventListener(name, markUserScroll, { passive: true });
+});
+el.chatList.addEventListener("scroll", function(){
+  if (Date.now() > chatUserUntil) return; // pas elle : on ne touche pas au suivi
+  const distanceFromBottom = el.chatList.scrollHeight - el.chatList.scrollTop - el.chatList.clientHeight;
+  chatFollow = distanceFromBottom < 60;
+});
+if (window.ResizeObserver){
+  new ResizeObserver(function(){ if (chatShouldFollow()) scrollChatToBottom(); }).observe(el.chatList);
+}
+
+// Ajoute une ligne tout en bas de la liste du chat (qui est ancrée en bas : les
+// anciens messages remontent quand il en arrive de nouveaux).
+//  - isSystem=true : petite mention centrée en italique (ex: "réponse dévoilée").
+//  - un message de HOST_NAME (toi, "BB") est encadré ; le tout dernier reste collé en
+//    haut du chat quand il remonte (voir ".chat-row.host.latest" dans le CSS), et
+//    il ramène toujours le chat tout en bas pour être lu en entier.
+//  - les retours à la ligne ("\n") d'un message sont conservés.
+function addChatRow(name, msg, isSystem){
+  const isHost = !isSystem && name === HOST_NAME;
+  const row = document.createElement("div");
+  row.className = "chat-row enter";
+  if (isSystem){
+    row.innerHTML = '<p class="chat-divider" style="width:100%;">' + msg + "</p>";
+  } else {
+    const c = colorFor(name);
+    const text = String(msg)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
+    row.innerHTML =
+      '<div class="chat-avatar" style="background:' + c.bg + '"></div>' +
+      (isHost
+        ? '<p class="chat-msg"><span class="chat-name">' + name + "</span><br>" + text + "</p>"
+        : '<p class="chat-msg"><span class="chat-name" style="color:' + c.fg + '">' + name + " </span>" + text + "</p>");
+    if (isHost){
+      // un seul message "dernier" reste collé en haut : on retire l'ancien
+      el.chatList.querySelectorAll(".chat-row.host.latest").forEach(function(n){ n.classList.remove("latest"); });
+      row.classList.add("host", "latest");
+    }
+  }
+  el.chatList.appendChild(row);
+  // le chat tourne longtemps : on retire les plus vieux messages (jamais le dernier message de BB, collé en haut)
+  while (el.chatList.children.length > CHAT_MAX_ROWS){
+    let old = null;
+    for (let i = 0; i < el.chatList.children.length; i++){
+      if (!el.chatList.children[i].classList.contains("latest")){ old = el.chatList.children[i]; break; }
+    }
+    if (!old) break;
+    old.remove();
+  }
+  if (isHost) chatFollow = true;
+  if (chatShouldFollow()){
+    scrollChatToBottom();
+    keepChatAtBottom(500); // et on le garde en bas le temps que la mise en page se stabilise
+  }
+}
+
+// Les messages du faux public sont programmés avec un petit délai (pour arriver
+// un par un). "chatLater" les mémorise afin de pouvoir, au changement d'épisode,
+// soit les afficher tout de suite d'un coup (flushChat), soit les annuler
+// (cancelChat). (Cela ne concerne que les réactions programmées d'un épisode : le chat
+// d'ambiance, plus bas, tourne tout seul et ne s'arrête jamais.)
+let chatTimers = [];
+function chatLater(fn, ms){
+  chatTimers = chatTimers.filter(function(t){ return !t.done; });
+  const t = { fn: fn, done: false, id: 0 };
+  t.id = setTimeout(function(){ t.done = true; fn(); }, ms);
+  chatTimers.push(t);
+}
+function flushChat(){
+  const pending = chatTimers.filter(function(t){ return !t.done; });
+  chatTimers = [];
+  pending.forEach(function(t){ clearTimeout(t.id); t.done = true; t.fn(); });
+}
+function cancelChat(){
+  chatTimers.forEach(function(t){ clearTimeout(t.id); });
+  chatTimers = [];
+}
+
+/* ---- Chat d'ambiance ----
+   Des commentaires de faux spectateurs, en continu, comme dans un vrai live : le chat ralentit
+   quand une vidéo joue mais ne s'arrête JAMAIS (voir AMBIENT_RATE en haut du script). Le choix des
+   messages dépend du moment (vidéo qui joue, elle réfléchit, classement, juste après sa réponse) et
+   de la série en cours ; un message n'est pas répété avant ~90 autres, et deux messages de suite ne
+   viennent jamais du même pseudo. Après une réponse, le chat s'emballe pendant environ 9 secondes. ---- */
+let ambientTimer = null;
+let ambientOn = false;
+let ambientHypeUntil = 0;
+let ambientTicks = 0;
+let ambientRecent = [];
+let ambientLastName = "";
+let ambientBurstTimers = [];
+
+function ambRange(r){ return r[0] + Math.random() * (r[1] - r[0]); }
+
+// Combien de temps avant le prochain message.
+function ambientDelay(){
+  if (Date.now() < ambientHypeUntil) return ambRange(AMBIENT_RATE.hype);
+  const ep = EPISODES[state.current];
+  const watching = ep && ep.type !== "rank" && !el.videoStage.classList.contains("hidden") && !el.video.paused;
+  return ambRange(watching ? AMBIENT_RATE.watching : AMBIENT_RATE.normal);
+}
+
+// Quel type de messages convient maintenant.
+function ambientContext(){
+  if (state.answered) return "after";
+  const ep = EPISODES[state.current];
+  if (!ep) return "generic";
+  if (ep.type === "rank") return "rank";
+  return el.video.paused ? "waiting" : "watching";
+}
+
+// Remplace {heure}, {pts}, {left}, {next}, {q}, {total} ; renvoie null si le message n'a pas de sens maintenant.
+function ambientFill(raw){
+  if (/\{pts\}/.test(raw) && state.score < 2) return null;
+  let left = 0, nextNum = 0;
+  if (/\{(left|next)\}/.test(raw)){
+    for (let i = 0; i < TIERS_SORTED.length; i++){
+      if (TIERS_SORTED[i].points > state.score){ left = TIERS_SORTED[i].points - state.score; nextNum = i + 1; break; }
+    }
+    if (!nextNum || left > 6) return null; // pas de palier à venir, ou trop loin pour en parler
+  }
+  const now = new Date();
+  const heure = now.getHours() + "h" + String(now.getMinutes()).padStart(2, "0");
+  return raw.replace(/\{heure\}/g, heure).replace(/\{pts\}/g, state.score).replace(/\{left\}/g, left)
+            .replace(/\{next\}/g, nextNum).replace(/\{q\}/g, Math.min(state.current + 1, REGULAR_COUNT)).replace(/\{total\}/g, REGULAR_COUNT)
+            .replace(/\{nom\}/g, randomNick());
+}
+
+// Un message au hasard dans une liste, en évitant les répétitions récentes.
+function ambientFrom(pool){
+  if (!pool || !pool.length) return null;
+  for (let attempt = 0; attempt < 14; attempt++){
+    const raw = pool[Math.floor(Math.random() * pool.length)];
+    if (ambientRecent.indexOf(raw) !== -1 && attempt < 12) continue;
+    const msg = ambientFill(raw);
+    if (msg == null) continue;
+    ambientRecent.push(raw);
+    if (ambientRecent.length > 90) ambientRecent.shift();
+    return msg;
+  }
+  return null;
+}
+
+// Un message au hasard, en mélangeant : le type du moment (45), la série en cours (25), le général (30).
+function ambientPick(){
+  const ep = EPISODES[state.current];
+  const pools = [[AMBIENT_CHAT[ambientContext()], 45], [ep && AMBIENT_CHAT.parts[ep.part], 25], [AMBIENT_CHAT.generic, 30]]
+    .filter(function(p){ return p[0] && p[0].length; });
+  const total = pools.reduce(function(s, p){ return s + p[1]; }, 0);
+  for (let attempt = 0; attempt < 4; attempt++){
+    let r = Math.random() * total;
+    let pool = pools[0][0];
+    for (let i = 0; i < pools.length; i++){
+      if (r < pools[i][1]){ pool = pools[i][0]; break; }
+      r -= pools[i][1];
+    }
+    const msg = ambientFrom(pool);
+    if (msg) return msg;
+  }
+  return ambientFrom(AMBIENT_CHAT.generic);
+}
+
+function ambientName(){
+  for (let i = 0; i < 10; i++){
+    const n = AMBIENT_NAMES[Math.floor(Math.random() * AMBIENT_NAMES.length)];
+    if (n !== ambientLastName && n !== HOST_NAME){ ambientLastName = n; return n; }
+  }
+  return AMBIENT_NAMES[0];
+}
+function ambientSay(msg){ if (msg) addChatRow(ambientName(), msg, false); }
+
+// Le nombre de spectateurs bouge un peu tout seul, comme un vrai direct.
+function jitterViewers(){
+  state.viewers = Math.max(300, state.viewers + Math.floor(Math.random() * 10) - 3);
+  el.viewerCount.textContent = state.viewers.toLocaleString("fr-FR") + " spectateurs";
+}
+
+function ambientTick(){
+  if (!el.quiz.classList.contains("active")) return;
+  ambientTicks++;
+  const hype = Date.now() < ambientHypeUntil;
+  if (ambientTicks <= 4 && AMBIENT_CHAT.hello.length){
+    ambientSay(ambientFrom(AMBIENT_CHAT.hello)); // le live vient de commencer : des "coucou"
+  } else if (Math.random() < (hype ? 0.35 : 0.16) && AMBIENT_CHAT.reactions.length){
+    const n = 2 + Math.floor(Math.random() * 2); // une rafale de 2 ou 3 courtes réactions
+    for (let i = 0; i < n; i++){
+      ambientBurstTimers.push(setTimeout(function(){ if (ambientOn) ambientSay(ambientFrom(AMBIENT_CHAT.reactions)); }, i * (250 + Math.random() * 650)));
+    }
+  } else {
+    ambientSay(ambientPick());
+  }
+  if (Math.random() < 0.4) jitterViewers();
+}
+function scheduleAmbient(first){
+  ambientTimer = setTimeout(function(){
+    if (!ambientOn) return;
+    ambientTick();
+    scheduleAmbient(false);
+  }, first ? 900 : ambientDelay());
+}
+function startAmbient(){
+  stopAmbient();
+  ambientOn = true;
+  ambientTicks = 0;
+  ambientHypeUntil = 0;
+  ambientRecent = [];
+  scheduleAmbient(true);
+}
+function stopAmbient(){
+  ambientOn = false;
+  clearTimeout(ambientTimer);
+  ambientBurstTimers.forEach(clearTimeout); // une rafale en cours ne doit pas déborder sur une nouvelle partie
+  ambientBurstTimers = [];
+}
+
+// Coupe les emoji flottants et animations si la personne a activé
+// "réduire les animations" dans son téléphone — pur confort d'accessibilité.
+const REDUCE_MOTION = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+// La liste des emoji qui peuvent apparaître : ajoute/enlève-en librement.
+const REACTION_EMOJIS = ["😂","😍","😱","🔥","❤️","👀","😭","😅"];
+let emojiTimer = null;
+
+// Fait apparaître un seul emoji, positionné aléatoirement en haut du chat,
+// qui monte et s'évanouit (l'animation elle-même est définie en CSS, classe
+// ".float-emoji"). "--drift" ajoute un léger mouvement latéral aléatoire.
+function spawnEmoji(){
+  if (REDUCE_MOTION) return;
+  const span = document.createElement("span");
+  span.className = "float-emoji rising";
+  span.textContent = REACTION_EMOJIS[Math.floor(Math.random()*REACTION_EMOJIS.length)];
+  span.style.left = (55 + Math.random()*32) + "%";
+  span.style.setProperty("--drift", (Math.random()*36 - 18) + "px");
+  el.reactionLayer.appendChild(span);
+  span.addEventListener("animationend", function(){ span.remove(); });
+  setTimeout(function(){ if (span.parentNode) span.remove(); }, 3500); // filet de sécurité
+}
+// Petite salve d'emoji d'un coup (utilisée au moment de la révélation de la réponse).
+function emojiBurst(count){
+  for (let i = 0; i < count; i++) setTimeout(spawnEmoji, i * 160);
+}
+// Fait apparaître un emoji de temps en temps, en continu, tant que le quiz
+// est en cours. Change les 2 nombres ci-dessous pour ralentir/accélérer
+// le rythme (en millisecondes) : actuellement entre 1.7s et 3.4s.
+function scheduleEmoji(){
+  if (REDUCE_MOTION) return;
+  emojiTimer = setTimeout(function(){
+    spawnEmoji();
+    scheduleEmoji();
+  }, 1700 + Math.random() * 1700);
+}
+function stopEmoji(){
+  if (emojiTimer){ clearTimeout(emojiTimer); emojiTimer = null; }
+}
+
+// Fait grimper le nombre de spectateurs d'un coup aléatoire (entre +35 et
+// +175) — appelée après chaque réponse, voir selectOption() plus bas.
+function bumpViewers(){
+  state.viewers += Math.floor(Math.random()*140) + 35;
+  el.viewerCount.textContent = state.viewers.toLocaleString("fr-FR") + " spectateurs";
+}
+
+/* ---- Extrait limité ----
+   Avant sa réponse, la vidéo joue depuis le début jusqu'à "stopAt" secondes puis
+   s'ARRÊTE net (la réponse se trouve après). Il n'y a pas de contrôles : elle ne
+   peut pas avancer plus loin, mais elle peut revoir l'extrait en appuyant sur la
+   vidéo. Dès qu'elle a répondu, la limite saute et la vidéo CONTINUE là où elle en
+   est, avec les contrôles (voir releaseFullPlayback). ---- */
+let limitRaf = 0;
+
+// Barre de déplacement sous la vidéo (voir .scrubber) : elle va de 0 à la limite (stopAt).
+let scrubbing = false; // vrai pendant qu'elle fait glisser la poignée (la lecture ne doit pas la contredire)
+function fmtTime(s){
+  s = Math.max(0, Math.floor(s));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+// Met la barre, le temps et l'icône lecture/pause à jour.
+function updateProgress(){
+  if (state.stopAt == null) return;
+  // tant que la nouvelle vidéo n'est pas prête, le lecteur peut encore indiquer le temps de la précédente
+  const t = state.videoReady ? Math.max(0, Math.min(el.video.currentTime, state.stopAt)) : 0;
+  if (!scrubbing) el.scrub.value = t;
+  el.scrub.style.setProperty("--p", (t / state.stopAt * 100) + "%");
+  el.scrubTime.textContent = fmtTime(t) + " / " + fmtTime(state.stopAt);
+  el.scrubPlay.classList.toggle("playing", !el.video.paused);
+}
+// Remet la barre à zéro pour un nouvel épisode.
+function resetScrubber(){
+  scrubbing = false;
+  el.scrub.max = state.stopAt;
+  el.scrub.value = 0;
+  el.scrub.style.setProperty("--p", "0%");
+  el.scrubTime.textContent = "0:00 / " + fmtTime(state.stopAt);
+  el.scrubPlay.classList.remove("playing");
+}
+// Quelle ligne afficher sous la vidéo : "scrub" (avant la réponse), "answer" (après) ou "none".
+function setCtl(mode){
+  el.videoCtl.classList.toggle("hidden", mode === "none");
+  el.scrubber.classList.toggle("hidden", mode !== "scrub");
+  el.answerBanner.classList.toggle("hidden", mode !== "answer");
+}
+function showReplay(on){ el.videoReplay.classList.toggle("hidden", !on); }
+
+// Arrête la vidéo pile à la limite (sans jamais laisser passer une image de trop).
+function checkLimit(){
+  if (state.answered || state.stopAt == null || !state.videoReady) return;
+  if (el.video.currentTime >= state.stopAt - 0.03){
+    el.video.pause();
+    el.video.currentTime = state.stopAt;
+    showReplay(true);
+  }
+  updateProgress();
+}
+// Surveille la limite à chaque image affichée (plus précis que "timeupdate", qui
+// n'arrive que 4 fois par seconde).
+function limitTick(){
+  limitRaf = 0;
+  if (state.answered || state.stopAt == null) return;
+  checkLimit();
+  if (!el.video.paused) limitRaf = requestAnimationFrame(limitTick);
+}
+function stopLimitWatch(){
+  if (limitRaf) cancelAnimationFrame(limitRaf);
+  limitRaf = 0;
+}
+
+// Après sa réponse : plus aucune limite. La vidéo saute DIRECTEMENT à la seconde où l'extrait
+// s'arrêtait (le début de la réponse, jusque-là interdit), quel que soit l'endroit où elle s'était
+// placée, puis continue avec le son et les contrôles, sous le message "La réponse en image".
+// Elle clique ensuite sur "suivant".
+function releaseFullPlayback(){
+  const jumpTo = state.stopAt;
+  state.stopAt = null;
+  stopLimitWatch();
+  showReplay(false);
+  el.videoStage.classList.add("answered");
+  setCtl(jumpTo != null ? "answer" : "none");
+  el.video.muted = false;
+  el.video.controls = true;
+  if (jumpTo != null) el.video.currentTime = jumpTo;
+  const p = el.video.play();
+  if (p && p.catch) p.catch(function(){
+    // le navigateur refuse le son : on lance la vidéo sans, et on invite à l'activer
+    el.video.muted = true;
+    el.video.play().catch(function(){});
+    updateSoundNudge();
+  });
+  updateSoundNudge();
+}
+
+/* ---- Son de la vidéo ----
+   Un navigateur démarre toujours une vidéo SANS son. Tant qu'elle est muette, on
+   affiche donc une bulle (#sound-nudge) qui invite à l'activer. Un site ne peut pas
+   lire le volume du téléphone : en appuyant sur la bulle, on active le son de la vidéo
+   ET on joue un petit bip, pour qu'elle vérifie elle-même qu'elle entend. Une fois le
+   son activé, il reste activé pour les aperçus suivants. ---- */
+let soundConfirmTimer = null;
+
+function updateSoundNudge(){
+  const isVideoEp = !el.videoStage.classList.contains("hidden");
+  const noVideoFile = !el.videoFallback.classList.contains("hidden"); // rien à écouter si la vidéo est introuvable
+  const show = isVideoEp && !noVideoFile && (el.video.muted || state.soundConfirm);
+  el.soundNudge.classList.toggle("hidden", !show);
+  el.soundNudge.classList.toggle("done", !!state.soundConfirm);
+  el.soundTitle.textContent = state.soundConfirm ? "Son activé" : "Active le son";
+  el.soundSub.textContent = state.soundConfirm ? "tu dois entendre un bip" : "et monte le volume";
+}
+
+// Petit "ding-ding" doux (généré, aucun fichier audio) qui permet de vérifier le volume.
+function playChime(){
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ac = new Ctx();
+    const now = ac.currentTime;
+    [[784, 0], [1175, 0.12]].forEach(function(n){
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.value = n[0];
+      gain.gain.setValueAtTime(0.0001, now + n[1]);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + n[1] + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n[1] + 0.3);
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(now + n[1]);
+      osc.stop(now + n[1] + 0.32);
+    });
+    setTimeout(function(){ if (ac.close) ac.close(); }, 900);
+  } catch(err){}
+}
+
+// Lance l'extrait de la vidéo. Si le navigateur refuse de le lancer avec du son,
+// on le lance sans et on invite à l'activer.
+function playPreview(){
+  const p = el.video.play();
+  if (p && p.catch) p.catch(function(){
+    el.video.muted = true;
+    el.video.play().catch(function(){});
+    updateSoundNudge();
+  });
+}
+
+// Adapte le cadre au format réel de la vidéo (vertical, 4:3, 16:9...) : "--vr" = largeur / hauteur.
+function applyVideoRatio(){
+  state.videoReady = true;
+  const w = el.video.videoWidth, h = el.video.videoHeight;
+  if (w && h) el.videoStage.style.setProperty("--vr", (w / h).toFixed(4));
+  layoutSoundNudge();
+}
+// Une vidéo large occupe presque toute la largeur : plus de place à côté pour la bulle
+// du son, qui passe alors sur la vidéo (classe "wide"). La bulle fait environ 138 px de
+// large avec son espacement et peut mordre sur la marge de 18 px de l'écran : il lui faut
+// donc au moins 120 px de libre de chaque côté de la vidéo.
+function layoutSoundNudge(){
+  const free = (el.videoStage.parentElement.clientWidth - el.videoStage.offsetWidth) / 2;
+  el.videoStage.classList.toggle("wide", free < 120);
+}
+
+// Mélange un tableau — sert à présenter les 4 animaux dans un ordre
+// aléatoire à chaque partie (sinon l'ordre de la config donnerait un indice).
+function shuffleArray(arr){
+  for (let i = arr.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  return arr;
+}
+
+// Affiche l'épisode courant (state.current) et aiguille vers le bon type
+// de question. Appelée au lancement du quiz et à chaque "épisode suivant".
+// Affiche en haut de l'écran le nom de la série de l'épisode (ep.part) avec le compteur
+// de SA série (ex. "Top 4 2/3", "Qui va jouir ? 5/8") ; sans "part", un compteur global.
+// Nom de la série d'une question, sa position dans la série et la taille de la série.
+function partInfo(i){
+  const ep = EPISODES[i];
+  let name = "Épisode", n = i + 1, total = EPISODES.length;
+  if (ep.part){
+    let first = i, last = i;
+    while (first > 0 && EPISODES[first - 1].part === ep.part) first--;
+    while (last < EPISODES.length - 1 && EPISODES[last + 1].part === ep.part) last++;
+    name = ep.part; n = i - first + 1; total = last - first + 1;
+  }
+  return { name: name, n: n, total: total };
+}
+function epLabel(i){ const info = partInfo(i); return info.name + " " + info.n + "/" + info.total; }
+function setBadge(){
+  const info = partInfo(state.current);
+  el.epBadge.textContent = info.name + " ";
+  const count = document.createElement("b");
+  count.textContent = info.n + "/" + info.total;
+  el.epBadge.appendChild(count);
+}
+
+function renderEpisode(){
+  const ep = EPISODES[state.current];
+  state.answered = false;
+
+  setBadge();
+  el.qTitle.textContent = ep.title;
+  el.resultLine.className = "result-line";
+  el.resultLine.innerHTML = "";
+  el.nextBtn.classList.add("hidden");
+  const next = EPISODES[state.current + 1];
+  el.nextBtn.textContent = !next ? "Voir le résultat"
+    : next.bonus ? "Question bonus"
+    : (ep.type !== "rank" && next.type !== "rank" ? "Vidéo suivante" : "Épisode suivant");
+
+  if (ep.type === "rank"){
+    renderRankEpisode(ep);
+  } else {
+    renderChoiceEpisode(ep);
+  }
+}
+
+// Question vidéo classique (2 ou 4 réponses).
+function renderChoiceEpisode(ep){
+  el.rankStage.classList.add("hidden");
+  el.rankSlots.innerHTML = ""; // vide l'ancien classement (et sa couronne)
+  el.rankPool.innerHTML = "";
+  state.goldActive = false;
+  el.rankValidateBtn.classList.add("hidden");
+  el.videoStage.classList.remove("hidden");
+  el.options.classList.remove("hidden");
+
+  // video — l'extrait démarre sans son tant qu'elle n'a pas activé le son (voir playPreview),
+  // et s'arrête à ep.stopAt secondes (voir checkLimit)
+  state.soundConfirm = false;
+  clearTimeout(soundConfirmTimer);
+  stopLimitWatch();
+  state.videoReady = false; // jusqu'à ce que la nouvelle vidéo soit chargée (voir armCanPlay / applyVideoRatio)
+  state.stopAt = (typeof ep.stopAt === "number") ? ep.stopAt : null;
+  el.videoStage.classList.remove("answered");
+  // Sans "stopAt" : vidéo LIBRE (série "Did she like it ?") — elle peut la regarder en entier,
+  // avec les contrôles natifs dès le départ, et il n'y a ni limite ni barre d'extrait.
+  el.videoStage.classList.toggle("free", state.stopAt == null);
+  showReplay(false);
+  if (state.stopAt != null){ resetScrubber(); setCtl("scrub"); } else { setCtl("none"); }
+  el.video.pause();
+  el.video.removeAttribute("controls");
+  if (state.stopAt == null) el.video.setAttribute("controls", "");
+  el.video.muted = !state.soundOn;
+  el.video.loop = !!ep.loop; // "loop: true" = la vidéo recommence toute seule quand elle est finie
+  el.videoFallback.classList.add("hidden");
+  el.videoPathHint.textContent = ep.video;
+
+  // Si le fichier ne se charge pas (un .mkv par exemple, mal supporté sur téléphone), on
+  // essaie le même nom en .mp4 avant d'afficher "Dépose ta vidéo".
+  let src = ep.video;
+  let triedMp4 = false;
+  function armCanPlay(){
+    el.video.oncanplay = function(){
+      el.video.oncanplay = null; // une seule fois (sinon la vidéo repartirait à chaque remise en mémoire tampon)
+      state.videoReady = true;
+      el.videoFallback.classList.add("hidden");
+      playPreview();
+      updateSoundNudge();
+    };
+  }
+  el.video.onerror = function(){
+    if (!triedMp4 && /\.(mkv|mov|avi|wmv|flv)$/i.test(src)){
+      triedMp4 = true;
+      state.videoReady = false;
+      src = src.replace(/\.[^.]+$/, ".mp4");
+      armCanPlay();
+      el.video.src = src;
+      el.video.load();
+      return;
+    }
+    el.videoFallback.classList.remove("hidden");
+    updateSoundNudge();
+  };
+  armCanPlay();
+  el.video.src = src;
+  el.video.load();
+  updateSoundNudge();
+
+  // options — seulement 2 réponses → mode duel "A vs B" avec un badge VS
+  const isBinary = ep.options.length === 2;
+  el.options.className = "options-grid" + (isBinary ? " binary" : "");
+  el.options.innerHTML = "";
+  if (isBinary){
+    const vs = document.createElement("span");
+    vs.className = "vs-badge";
+    vs.textContent = "VS";
+    vs.setAttribute("aria-hidden", "true");
+    el.options.appendChild(vs);
+  }
+  ep.options.forEach(function(text, i){
+    const btn = document.createElement("button");
+    btn.className = "opt-btn";
+    btn.type = "button";
+    btn.innerHTML = '<span class="opt-letter">' + LETTERS[i] + "</span><span>" + text + "</span>";
+    btn.addEventListener("click", function(){ selectOption(i, btn); });
+    el.options.appendChild(btn);
+  });
+}
+
+// Question "classement" : affiche les 4 cases du classement (vides au départ) à
+// gauche et les cartes à placer à droite, dans un ordre mélangé qui ne bouge plus
+// ensuite (une carte retirée du classement retourne toujours à sa place d'origine).
+let currentRankEp = null;
+function renderRankEpisode(ep){
+  el.video.pause();
+  stopLimitWatch();
+  state.stopAt = null;
+  setCtl("none");
+  el.videoStage.classList.add("hidden");
+  updateSoundNudge(); // pas de vidéo ici : la bulle du son disparaît
+  el.options.classList.add("hidden");
+  el.rankStage.classList.remove("hidden");
+  el.rankValidateBtn.classList.add("hidden");
+
+  currentRankEp = ep;
+  state.slotItems = [null, null, null, null];
+  state.rankAttempts = 0;
+  state.rankTries = [];
+  state.retryCursor = 0;
+  state.confirmed = {};
+  state.goldActive = false;
+  state.goldCount = 0;
+
+  // on mélange jusqu'à ce que les cartes ne soient PAS déjà dans le bon ordre
+  const ids = ep.items.map(function(it){ return it.id; });
+  let order;
+  do { order = shuffleArray(ids.slice()); }
+  while (ids.length > 1 && order.join() === ep.correctOrder.join());
+  state.rankPoolOrder = order;
+
+  el.rankSlots.classList.remove("shake");
+  renderRankUI();
+}
+
+function itemById(ep, id){
+  return ep.items.find(function(it){ return it.id === id; });
+}
+
+// Remplit une carte : image portrait si l'item en a une, sinon petite icône
+// (RANK_ICONS) si elle existe, plus le nom de l'item. Si l'image est introuvable,
+// la carte retombe toute seule sur l'affichage "nom seul".
+function buildCardFace(card, item){
+  card.innerHTML = "";
+  card.classList.remove("has-image");
+  if (item.image){
+    const img = document.createElement("img");
+    img.alt = "";
+    img.draggable = false;
+    img.onerror = function(){ img.remove(); card.classList.remove("has-image"); };
+    img.src = item.image;
+    card.classList.add("has-image");
+    card.appendChild(img);
+  } else if (RANK_ICONS[item.id]){
+    const icon = document.createElement("span");
+    icon.className = "rank-icon";
+    icon.innerHTML = RANK_ICONS[item.id];
+    card.appendChild(icon);
+  }
+  if (item.name){
+    const label = document.createElement("span");
+    label.className = "rank-label";
+    label.textContent = item.name;
+    card.appendChild(label);
+  }
+}
+
+// Redessine entièrement les 4 cases et la zone des cartes à placer à partir de
+// state.slotItems — appelée après chaque pose, retrait ou échange.
+function renderRankUI(){
+  const ep = currentRankEp;
+
+  el.rankSlots.innerHTML = "";
+  for (let i = 0; i < state.slotItems.length; i++){
+    const slot = document.createElement("div");
+    slot.className = "rank-slot";
+    slot.dataset.index = i;
+    const itemId = state.slotItems[i];
+    if (itemId){
+      const item = itemById(ep, itemId);
+      slot.classList.add("filled");
+      const card = document.createElement("div");
+      card.className = "rank-card";
+      buildCardFace(card, item);
+      card.addEventListener("pointerdown", function(e){ startDrag(e, item, "slot", i, card); });
+      slot.appendChild(card);
+    }
+    const num = document.createElement("span");
+    num.className = "rank-slot-num";
+    num.textContent = i + 1;
+    slot.appendChild(num);
+    el.rankSlots.appendChild(slot);
+  }
+  // les cartes déjà validées comme bonnes restent en vert (et doré pour la 1ère)
+  applyRankMarks(false);
+
+  // Chaque carte a sa "cellule" fixe à droite : quand elle est dans le
+  // classement la cellule reste vide, ce qui garde la mise en page stable.
+  el.rankPool.innerHTML = "";
+  state.rankPoolOrder.forEach(function(id){
+    const cell = document.createElement("div");
+    cell.className = "rank-pool-cell";
+    if (state.slotItems.indexOf(id) === -1){
+      const item = itemById(ep, id);
+      const card = document.createElement("div");
+      card.className = "rank-card";
+      buildCardFace(card, item);
+      card.addEventListener("pointerdown", function(e){ startDrag(e, item, "pool", null, card); });
+      cell.appendChild(card);
+    }
+    el.rankPool.appendChild(cell);
+  });
+
+  // dès qu'elle touche à son classement, l'ancien verdict (la croix) disparaît
+  if (!state.answered){
+    el.resultLine.className = "result-line";
+    el.resultLine.innerHTML = "";
+  }
+  const allFilled = state.slotItems.every(function(v){ return v !== null; });
+  el.rankValidateBtn.textContent = state.rankAttempts > 0 ? "Valider à nouveau" : "Valider mon classement";
+  el.rankValidateBtn.classList.toggle("hidden", !allFilled || state.answered);
+}
+
+/* ---- couleurs du verdict : vert pour une carte bien placée, doré + couronne
+   pour la 1ère place ---- */
+
+// La couronne (les dégradés "crownGrad"/"crownShine" sont définis une fois pour
+// toutes en haut du <body>) et les 6 étincelles qui scintillent autour de la carte.
+const CROWN_SVG = '<svg class="rank-crown" viewBox="-1 0 66 47" aria-hidden="true">' +
+  '<g transform="translate(0,1)">' +
+  '<path d="M6 36 L3 13 L18 25 L32 7 L46 25 L61 13 L58 36 Z" fill="url(#crownGrad)" stroke="#8a5a00" stroke-width="1.2" stroke-linejoin="round"/>' +
+  '<path d="M10 33 L8 21 L18 29 L32 15 L46 29 L56 21 L54 33 Z" fill="url(#crownShine)"/>' +
+  '<rect x="5" y="34" width="54" height="9" rx="2.5" fill="url(#crownGrad)" stroke="#8a5a00" stroke-width="1.2"/>' +
+  '<circle cx="3.4" cy="12" r="3.2" fill="#fff6c8" stroke="#8a5a00" stroke-width="1"/>' +
+  '<circle cx="32" cy="6" r="3.8" fill="#fff6c8" stroke="#8a5a00" stroke-width="1"/>' +
+  '<circle cx="60.6" cy="12" r="3.2" fill="#fff6c8" stroke="#8a5a00" stroke-width="1"/>' +
+  '<circle cx="17" cy="38.5" r="2.4" fill="#e0245e" stroke="#7a0f2d" stroke-width="0.6"/>' +
+  '<circle cx="32" cy="38.5" r="2.8" fill="#38bdf8" stroke="#0b5c85" stroke-width="0.6"/>' +
+  '<circle cx="47" cy="38.5" r="2.4" fill="#e0245e" stroke="#7a0f2d" stroke-width="0.6"/>' +
+  '</g></svg>';
+// [gauche, haut, taille, retard] de chaque étincelle
+const SPARKLES_HTML = [
+  ["-9%", "10%", "10px", "0s"], ["90%", "2%", "12px", "0.5s"], ["98%", "56%", "8px", "1.1s"],
+  ["-8%", "66%", "9px", "1.6s"], ["42%", "95%", "10px", "0.8s"], ["64%", "-6%", "7px", "1.9s"]
+].map(function(s){
+  return '<i class="spark" style="--x:' + s[0] + ';--y:' + s[1] + ';--s:' + s[2] + ';--d:' + s[3] + '"></i>';
+}).join("");
+
+// Petite explosion de particules dorées autour de la carte (une seule fois, au
+// moment où la 1ère place est trouvée).
+function goldBurst(slot){
+  if (REDUCE_MOTION) return;
+  for (let k = 0; k < 12; k++){
+    const p = document.createElement("i");
+    p.className = "burst";
+    const a = (Math.PI * 2 * k) / 12 + Math.random() * 0.4;
+    const dist = 38 + Math.random() * 30;
+    p.style.setProperty("--dx", (Math.cos(a) * dist) + "px");
+    p.style.setProperty("--dy", (Math.sin(a) * dist) + "px");
+    slot.appendChild(p);
+    setTimeout(function(){ p.remove(); }, 1100);
+  }
+}
+
+// Applique sur les cases affichées le dernier verdict (state.confirmed = les
+// cases qui étaient bonnes à la dernière validation). Une carte reste verte tant
+// qu'elle est à la même place ; la 1ère place devient dorée avec une couronne.
+// fresh=true (juste après une validation) rejoue les animations d'apparition ;
+// renvoie true si la couronne vient d'apparaître à l'instant.
+function applyRankMarks(fresh){
+  const slots = el.rankSlots.children;
+  const wasGold = state.goldActive;
+  let goldNow = false;
+  for (let i = 0; i < slots.length; i++){
+    const slot = slots[i];
+    const good = !!state.slotItems[i] && state.confirmed[i] === state.slotItems[i];
+    const isGold = good && i === 0;
+    slot.classList.toggle("correct", good);
+    slot.classList.toggle("fresh", good && fresh);
+    slot.classList.toggle("gold", isGold);
+    if (isGold){
+      goldNow = true;
+      if (!slot.querySelector(".rank-crown")){
+        slot.insertAdjacentHTML("beforeend", CROWN_SVG + SPARKLES_HTML);
+      }
+      if (fresh && !wasGold){
+        slot.classList.add("reveal");
+        goldBurst(slot);
+      }
+    }
+  }
+  state.goldActive = goldNow;
+  return goldNow && !wasGold && fresh;
+}
+
+/* ---- glisser-déposer : appuyer sur une carte, la glisser jusqu'à une case
+   (ou jusqu'à la zone de droite pour la retirer), puis relâcher. Un simple
+   tapotement sans glisser pose la carte dans la 1ère case libre (ou la retire,
+   si on tapote une case déjà remplie) — au cas où glisser précisément ne soit
+   pas pratique. ---- */
+let drag = null;
+
+function startDrag(e, item, sourceType, sourceIndex, cardEl){
+  if (state.answered) return;
+  e.preventDefault();
+
+  const rect = cardEl.getBoundingClientRect();
+  const ghost = document.createElement("div");
+  ghost.className = "rank-card rank-ghost";
+  ghost.style.width = rect.width + "px";
+  ghost.style.height = rect.height + "px";
+  buildCardFace(ghost, item);
+  document.body.appendChild(ghost);
+  moveGhost(ghost, e.clientX, e.clientY);
+
+  drag = { item: item, sourceType: sourceType, sourceIndex: sourceIndex, ghost: ghost, startX: e.clientX, startY: e.clientY, moved: false };
+  cardEl.classList.add("dragging-source");
+
+  if (cardEl.setPointerCapture) { try { cardEl.setPointerCapture(e.pointerId); } catch(err){} }
+  cardEl.addEventListener("pointermove", onDragMove);
+  cardEl.addEventListener("pointerup", onDragEnd);
+  cardEl.addEventListener("pointercancel", onDragEnd);
+}
+
+function moveGhost(ghost, x, y){
+  ghost.style.left = (x - ghost.offsetWidth / 2) + "px";
+  ghost.style.top = (y - ghost.offsetHeight / 2) + "px";
+}
+
+function dropTargetAt(x, y){
+  const hitEl = document.elementFromPoint(x, y);
+  if (!hitEl) return null;
+  const slot = hitEl.closest(".rank-slot");
+  if (slot) return slot;
+  const pool = hitEl.closest("#rank-pool");
+  if (pool) return pool;
+  return null;
+}
+
+function onDragMove(e){
+  if (!drag) return;
+  if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) > 6) drag.moved = true;
+  moveGhost(drag.ghost, e.clientX, e.clientY);
+
+  const hit = dropTargetAt(e.clientX, e.clientY);
+  document.querySelectorAll(".drop-hover").forEach(function(n){ n.classList.remove("drop-hover"); });
+  if (hit) hit.classList.add("drop-hover");
+}
+
+function onDragEnd(e){
+  if (!drag) return;
+  const cardEl = e.currentTarget;
+  cardEl.removeEventListener("pointermove", onDragMove);
+  cardEl.removeEventListener("pointerup", onDragEnd);
+  cardEl.removeEventListener("pointercancel", onDragEnd);
+  cardEl.classList.remove("dragging-source");
+  drag.ghost.remove();
+  document.querySelectorAll(".drop-hover").forEach(function(n){ n.classList.remove("drop-hover"); });
+
+  if (!drag.moved){
+    // simple tapotement, sans glissement
+    if (drag.sourceType === "slot") state.slotItems[drag.sourceIndex] = null;
+    else placeIntoFirstEmptySlot(drag.item);
+  } else {
+    const hit = dropTargetAt(e.clientX, e.clientY);
+    if (hit && hit.classList.contains("rank-slot")){
+      dropOnSlot(drag, Number(hit.dataset.index));
+    } else if (hit && hit.id === "rank-pool" && drag.sourceType === "slot"){
+      state.slotItems[drag.sourceIndex] = null;
+    }
+    // relâché ailleurs (hors case et hors zone de droite) → rien ne change
+  }
+
+  drag = null;
+  renderRankUI();
+}
+
+function dropOnSlot(d, targetIndex){
+  const occupant = state.slotItems[targetIndex];
+  if (d.sourceType === "pool"){
+    state.slotItems[targetIndex] = d.item.id; // l'occupant éventuel retourne à droite
+  } else if (d.sourceType === "slot"){
+    if (d.sourceIndex === targetIndex) return;
+    state.slotItems[targetIndex] = d.item.id;
+    state.slotItems[d.sourceIndex] = occupant || null; // échange les 2 places si la case était prise
+  }
+}
+
+function placeIntoFirstEmptySlot(item){
+  const i = state.slotItems.indexOf(null);
+  if (i !== -1) state.slotItems[i] = item.id;
+}
+
+// Compare le classement à ep.correctOrder et mémorise quelles cases sont bonnes
+// (state.confirmed). Renvoie true si les 4 sont à la bonne place.
+function gradeRank(ep){
+  state.confirmed = {};
+  let allCorrect = true;
+  ep.correctOrder.forEach(function(id, i){
+    if (state.slotItems[i] === id) state.confirmed[i] = id;
+    else allCorrect = false;
+  });
+  return allCorrect;
+}
+
+// Appelée par le bouton "Valider". Si le classement est bon (ou si la question
+// n'autorise qu'un seul essai), on verrouille tout, on colore les cartes et on
+// lance la salle de commentaires. Si c'est raté ET que "retry" est activé,
+// on la laisse simplement réessayer (voir handleFailedAttempt).
+function revealRankResult(){
+  if (state.answered) return;
+  const ep = currentRankEp;
+  const allCorrect = gradeRank(ep);
+
+  if (!allCorrect && ep.retry){
+    handleFailedAttempt(ep);
+    return;
+  }
+
+  state.answered = true;
+  el.rankValidateBtn.classList.add("hidden");
+  state.log.push({ kind: "rank", label: epLabel(state.current), final: slotNames(ep), tries: state.rankTries.slice(), ok: allCorrect });
+  if (allCorrect){ if (state.rankAttempts === 0) streakHit(); } else streakMiss();
+
+  applyRankMarks(true); // vert pour les bonnes cartes, doré + couronne pour la 1ère place
+  Array.from(el.rankSlots.children).forEach(function(slot){
+    if (!slot.classList.contains("correct")) slot.classList.add("incorrect", "fresh");
+  });
+
+  if (allCorrect){
+    state.score++; // 1 point seulement si les 4 sont à la bonne place
+    renderTiers({ pop: true });
+    el.resultLine.className = "result-line correct";
+    el.resultLine.innerHTML = ICON_CHECK;
+  } else {
+    el.resultLine.className = "result-line incorrect";
+    el.resultLine.innerHTML = ICON_X;
+  }
+
+  revealReactions(ep);
+}
+
+// Essai raté sur une question avec "retry" : rien n'est verrouillé. Les cartes
+// bien placées passent en vert (doré + couronne pour la 1ère place), les autres
+// tremblent, une croix apparaît et le faux public encourage. Elle peut bouger
+// les cartes et revalider autant de fois qu'elle veut.
+function handleFailedAttempt(ep){
+  state.rankAttempts++;
+  state.rankTries.push(slotNames(ep)); // pour le journal envoyé sur Discord
+  if (state.rankAttempts === 1) streakMiss(); // un essai raté casse la série
+  const goldJustAppeared = applyRankMarks(true);
+  const goodCount = Object.keys(state.confirmed).length;
+
+  el.resultLine.className = "result-line incorrect";
+  el.resultLine.innerHTML = ICON_X;
+  el.rankValidateBtn.textContent = "Valider à nouveau";
+
+  el.rankSlots.classList.remove("shake");
+  void el.rankSlots.offsetWidth; // relance l'animation même si elle venait de jouer
+  el.rankSlots.classList.add("shake");
+  setTimeout(function(){ el.rankSlots.classList.remove("shake"); }, 450);
+
+  addChatRow("", "essai " + state.rankAttempts + " — " +
+    (goodCount ? goodCount + (goodCount > 1 ? " cartes bien placées" : " carte bien placée") : "pas tout à fait ça"), true);
+
+  // 2 messages du faux public : si la couronne vient d'apparaître, l'un d'eux
+  // la célèbre (ep.firstReactions), l'autre est un encouragement.
+  const queue = [];
+  if (goldJustAppeared && ep.firstReactions && ep.firstReactions.length){
+    queue.push(ep.firstReactions[state.goldCount % ep.firstReactions.length]);
+    state.goldCount++;
+  }
+  const encouragements = ep.retryReactions || [];
+  while (queue.length < 2 && encouragements.length){
+    queue.push(encouragements[state.retryCursor % encouragements.length]);
+    state.retryCursor++;
+  }
+  queue.forEach(function(r, k){
+    chatLater(function(){ addChatRow(r.name, r.msg, false); }, 400 + k * 450);
+  });
+  emojiBurst(goldJustAppeared ? 6 : 2);
+}
+
+// Appelée quand elle clique sur une des réponses (question vidéo). Verrouille
+// les boutons, colore la bonne réponse en vert / la mauvaise en rouge, relance
+// la vidéo en entier, et déclenche la salle de commentaires.
+function selectOption(index, btn){
+  if (state.answered) return;
+  state.answered = true;
+  const ep = EPISODES[state.current];
+  // .filter(...) exclut le badge "VS" des questions à 2 choix, qui vit dans
+  // le même conteneur mais n'est pas une réponse.
+  const buttons = Array.from(el.options.children).filter(function(node){ return node.tagName === "BUTTON"; });
+
+  buttons.forEach(function(b){ b.disabled = true; b.classList.add("dimmed"); });
+  btn.classList.remove("dimmed");
+  btn.classList.add("is-selected");
+
+  const correctBtn = buttons[ep.correct];
+  const isRight = index === ep.correct;
+  const before = state.score;
+
+  if (isRight){
+    btn.classList.remove("is-selected");
+    btn.classList.add("is-correct");
+    if (ep.bonus){ state.score = before * 2; state.bonusState = "won"; } // double ou rien : les points sont doublés
+    else state.score++;
+    streakHit();
+    renderTiers({ pop: true });
+    el.resultLine.className = "result-line correct";
+    el.resultLine.innerHTML = ICON_CHECK + (ep.bonus ? "<span>Points doublés : " + state.score + "</span>" : "");
+  } else {
+    btn.classList.remove("is-selected");
+    btn.classList.add("is-incorrect");
+    correctBtn.classList.remove("dimmed");
+    correctBtn.classList.add("is-correct");
+    if (ep.bonus){ state.score = 0; state.tiersUnlocked = 0; state.bonusState = "lost"; renderTiers({ pop: true }); } // ...ou rien
+    streakMiss();
+    el.resultLine.className = "result-line incorrect";
+    el.resultLine.innerHTML = ICON_X + (ep.bonus ? "<span>Tout est perdu</span>" : "");
+  }
+  logChoice(ep, index, isRight, before);
+
+  releaseFullPlayback();
+  revealReactions(ep);
+}
+
+// Commun aux 2 types de question : petit mot système dans le chat, message de BB
+// ("hostReply") s'il y en a un, salve d'emoji, réactions du chat qui arrivent 2 par 2,
+// spectateurs qui grimpent, et bouton "suivant" qui apparaît.
+function revealReactions(ep){
+  ambientHypeUntil = Date.now() + 9000; // le chat s'emballe un moment après sa réponse
+  chatFollow = true; // le chat se remet tout en bas pour montrer la suite
+  keepChatAtBottom(1500); // le bouton "suivant" et la vidéo vont encore changer la mise en page
+  addChatRow("", "réponse dévoilée", true);
+  if (ep.bonus) addChatRow("", state.bonusState === "won" ? "points doublés !" : "tout est perdu...", true);
+  if (state.streakNote){ addChatRow("", "série de " + state.streakNote + " 🔥", true); state.streakNote = 0; }
+  // "hostReply" : BB réagit tout de suite à son choix (avant le public) ; ce message
+  // remplace celui qui était collé en haut du chat.
+  if (ep.hostReply) addChatRow(HOST_NAME, ep.hostReply, false);
+  emojiBurst(5);
+
+  const reactions = ep.reactions || [];
+  for (let i = 0; i < reactions.length; i += 2){
+    const delay = 450 + (i/2) * 480;
+    (function(a, b){
+      chatLater(function(){
+        addChatRow(a.name, a.msg, false);
+        if (b) addChatRow(b.name, b.msg, false);
+      }, delay);
+    })(reactions[i], reactions[i+1]);
+  }
+  chatLater(bumpViewers, 550 + reactions.length * 240);
+
+  el.nextBtn.classList.remove("hidden");
+}
+
+/* ---- Carte de transition ("interlude") ----
+   Une carte plein écran qui marque le passage d'une partie à l'autre : le titre, puis
+   le message de BB qui apparaît ligne par ligne, puis le bouton. Appuyer sur la carte
+   affiche tout d'un coup. Elle est définie par le champ "intro" du premier épisode de
+   la partie suivante (voir l'épisode 4) et s'ouvre quand elle clique sur "suivant". ---- */
+let interludeTimers = [];
+// Remplace {pts}, {double} et {nom} dans les textes des cartes de transition.
+function fillText(raw){
+  return String(raw || "").replace(/\{pts\}/g, state.score).replace(/\{double\}/g, state.score * 2)
+    .replace(/\{nom\}/g, state.nick || randomNick());
+}
+function showInterlude(cfg, onClose, onSkip){
+  state.interludeOpen = true;
+  stopEmoji();
+  const col = colorFor(HOST_NAME);
+  el.interludeAvatar.style.background = col.bg;
+  el.interludeHost.textContent = HOST_NAME;
+  el.interludeTitle.textContent = fillText(cfg.title);
+  el.interludeTitle.classList.toggle("hidden", !cfg.title);
+  el.interludeBtn.textContent = cfg.button || "C'est parti";
+  el.interludeBtn.classList.remove("show");
+  const hasSkip = !!(cfg.skip && onSkip); // 2e bouton (ex. "Je garde mes points" avant la question bonus)
+  el.interludeSkip.classList.toggle("hidden", !hasSkip);
+  el.interludeSkip.classList.remove("show");
+  el.interludeSkip.textContent = cfg.skip || "";
+  el.interludeLines.innerHTML = "";
+
+  // la 1ère ligne est mise en avant, la dernière sert de signature
+  const lines = fillText(cfg.message).split("\n");
+  const nodes = lines.map(function(text, i){
+    const p = document.createElement("p");
+    p.className = "il-line" + (i === 0 ? " lead" : "") + (lines.length > 1 && i === lines.length - 1 ? " sign" : "");
+    p.textContent = text;
+    el.interludeLines.appendChild(p);
+    return p;
+  });
+
+  function revealAll(){
+    interludeTimers.forEach(clearTimeout);
+    interludeTimers = [];
+    nodes.forEach(function(p){ p.classList.add("show"); });
+    el.interludeBtn.classList.add("show");
+    if (hasSkip) el.interludeSkip.classList.add("show");
+    el.interludeBtn.focus();
+  }
+  function skip(e){ if (e.target !== el.interludeBtn && e.target !== el.interludeSkip) revealAll(); }
+  function closeWith(cb){
+    if (!state.interludeOpen || el.interlude.classList.contains("closing")) return;
+    el.interludeCard.removeEventListener("click", skip);
+    interludeTimers.forEach(clearTimeout);
+    interludeTimers = [];
+    el.interlude.classList.add("closing");
+    setTimeout(function(){
+      el.interlude.classList.add("hidden");
+      el.interlude.classList.remove("closing");
+      state.interludeOpen = false;
+      scheduleEmoji();
+      cb();
+    }, REDUCE_MOTION ? 0 : 300);
+  }
+
+  el.interludeBtn.onclick = function(){ closeWith(onClose); };
+  el.interludeSkip.onclick = function(){ closeWith(onSkip); };
+  el.interludeCard.addEventListener("click", skip);
+  el.interlude.classList.remove("hidden", "closing");
+
+  if (REDUCE_MOTION){ revealAll(); return; }
+  const START = 900, STEP = 850;
+  interludeTimers = nodes.map(function(p, i){
+    return setTimeout(function(){ p.classList.add("show"); }, START + i * STEP);
+  });
+  interludeTimers.push(setTimeout(revealAll, START + nodes.length * STEP + 300));
+}
+
+// Passe à l'épisode suivant, ou affiche l'écran de fin si c'était le dernier.
+/* ---- Points et paliers ----
+   Chaque bonne réponse vaut 1 point (voir TIERS en haut du script). La barre en haut de l'écran
+   se remplit ; quand un palier est atteint, sa pastille se met à pulser, et l'animation de
+   félicitations (showTierPop) se joue quand elle appuie sur "suivant". ---- */
+const TIERS_SORTED = TIERS.slice().sort(function(a, b){ return a.points - b.points; });
+function tierTitle(t, i){ return t.title || ("Palier " + (i + 1)); }
+// Le maximum de la barre du haut : le plus haut palier, ou le nombre de questions.
+function meterMax(){ return Math.max(REGULAR_COUNT, TIERS_SORTED.length ? TIERS_SORTED[TIERS_SORTED.length - 1].points : 0); }
+
+// Met à jour la barre : points, remplissage et état de chaque pastille.
+// opts.pop = fait "rebondir" le nombre de points ; opts.just = index du palier qui vient d'être débloqué.
+function renderTiers(opts){
+  opts = opts || {};
+  const max = meterMax();
+  el.tiers.classList.toggle("hidden", TIERS_SORTED.length === 0);
+  el.tiersPts.textContent = state.score + " pt" + (state.score > 1 ? "s" : "");
+  el.tiersFill.style.width = (Math.min(state.score, max) / max * 100) + "%";
+  el.tiersTrack.querySelectorAll(".tier-mark").forEach(function(n){ n.remove(); });
+  TIERS_SORTED.forEach(function(t, i){
+    const m = document.createElement("i");
+    m.className = "tier-mark";
+    m.style.left = Math.min(100, t.points / max * 100) + "%";
+    if (i < state.tiersUnlocked) m.classList.add("unlocked");
+    else if (state.score >= t.points) m.classList.add("pending");
+    if (opts.just === i) m.classList.add("just");
+    m.title = tierTitle(t, i) + " : " + t.points + " points";
+    el.tiersTrack.appendChild(m);
+  });
+  if (opts.pop){
+    el.tiersPts.classList.remove("pop");
+    void el.tiersPts.offsetWidth; // relance l'animation même si elle venait de jouer
+    el.tiersPts.classList.add("pop");
+  }
+}
+
+// Index du prochain palier atteint mais pas encore fêté, ou -1.
+function pendingTier(){
+  const reached = TIERS_SORTED.filter(function(t){ return state.score >= t.points; }).length;
+  return reached > state.tiersUnlocked ? state.tiersUnlocked : -1;
+}
+
+// La pluie de confettis dorés de l'animation de palier, dessinée sur le <canvas> plein écran :
+// une grosse explosion au centre, puis deux salves sur les côtés. Renvoie une fonction qui l'arrête.
+function launchConfetti(canvas){
+  if (REDUCE_MOTION || !canvas.getContext) return function(){};
+  let ctx = null;
+  try { ctx = canvas.getContext("2d"); } catch(err){}
+  if (!ctx) return function(){};
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.max(1, Math.floor(window.innerWidth * dpr));
+  const H = Math.max(1, Math.floor(window.innerHeight * dpr));
+  canvas.width = W;
+  canvas.height = H;
+  const colors = ["#fff6c8", "#ffe58a", "#f2c230", "#d4a017", "#ff2e4d", "#ffffff"];
+  const parts = [];
+  const timers = [];
+  let pendingBursts = 3, raf = 0, stopped = false;
+
+  function burst(count, x, y, spread, tilt, power){
+    for (let i = 0; i < count; i++){
+      const ang = -Math.PI / 2 + tilt + (Math.random() - 0.5) * spread;
+      const sp = power * (0.45 + Math.random() * 0.75) * dpr;
+      parts.push({
+        x: x, y: y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, g: 0.3 * dpr,
+        r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.45,
+        w: (5 + Math.random() * 6) * dpr, h: (3 + Math.random() * 5) * dpr,
+        c: colors[Math.floor(Math.random() * colors.length)],
+        life: 0, ttl: 110 + Math.random() * 90, star: Math.random() < 0.18
+      });
+    }
+  }
+  function frame(){
+    if (stopped) return;
+    ctx.clearRect(0, 0, W, H);
+    let alive = 0;
+    for (let i = 0; i < parts.length; i++){
+      const p = parts[i];
+      p.life++;
+      if (p.life > p.ttl || p.y > H + 30) continue;
+      alive++;
+      p.vy += p.g; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, (p.ttl - p.life) / 30));
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.r);
+      ctx.fillStyle = p.c;
+      if (p.star){ // petite étoile à 4 branches
+        const s = p.w * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(0, -s); ctx.lineTo(s * 0.28, -s * 0.28); ctx.lineTo(s, 0); ctx.lineTo(s * 0.28, s * 0.28);
+        ctx.lineTo(0, s); ctx.lineTo(-s * 0.28, s * 0.28); ctx.lineTo(-s, 0); ctx.lineTo(-s * 0.28, -s * 0.28);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      }
+      ctx.restore();
+    }
+    if (alive || pendingBursts > 0) raf = requestAnimationFrame(frame);
+    else ctx.clearRect(0, 0, W, H);
+  }
+  function later(ms, fn){ timers.push(setTimeout(function(){ pendingBursts--; fn(); }, ms)); }
+  later(500, function(){ burst(70, W / 2, H * 0.34, Math.PI * 1.5, 0, 15); });
+  later(1000, function(){ burst(34, W * 0.1, H * 0.62, 0.9, 0.5, 17); });
+  later(1000, function(){ burst(34, W * 0.9, H * 0.62, 0.9, -0.5, 17); });
+  raf = requestAnimationFrame(frame);
+  return function stop(){
+    stopped = true;
+    timers.forEach(clearTimeout);
+    cancelAnimationFrame(raf);
+    ctx.clearRect(0, 0, W, H);
+  };
+}
+
+// L'animation de félicitations d'un palier (i = son index dans TIERS_SORTED).
+let tierTimers = [];
+let stopConfetti = null;
+function showTierPop(i, onClose){
+  const t = TIERS_SORTED[i];
+  state.tierOpen = true;
+  stopEmoji();
+  el.video.pause(); // elle quitte la question : la vidéo de la réponse ne continue pas derrière
+  el.tierNum.textContent = String(i + 1);
+  el.tierTitle.textContent = tierTitle(t, i);
+  el.tierSub.textContent = t.points + " point" + (t.points > 1 ? "s" : "") + " atteint" + (t.points > 1 ? "s" : "");
+  const reward = String(t.reward || "").trim();
+  el.tierReward.textContent = reward;
+  el.tierReward.classList.toggle("hidden", !reward); // pas de texte = pas d'encadré
+  el.tierBtn.classList.remove("show");
+  el.tierPop.classList.remove("hidden", "closing", "skip");
+  // étincelles autour de la médaille (le même effet que la couronne du Top 4)
+  el.tierEmblem.querySelectorAll(".spark").forEach(function(n){ n.remove(); });
+  el.tierEmblem.insertAdjacentHTML("beforeend", SPARKLES_HTML);
+  if (stopConfetti) stopConfetti();
+  stopConfetti = launchConfetti(el.tierConfetti);
+
+  function showBtn(){
+    tierTimers.forEach(clearTimeout);
+    tierTimers = [];
+    el.tierBtn.classList.add("show");
+    el.tierBtn.focus();
+  }
+  function skip(e){
+    if (e.target === el.tierBtn) return;
+    el.tierPop.classList.add("skip");
+    showBtn();
+  }
+  function close(){
+    if (!state.tierOpen || el.tierPop.classList.contains("closing")) return;
+    tierTimers.forEach(clearTimeout);
+    tierTimers = [];
+    if (stopConfetti) stopConfetti();
+    stopConfetti = null;
+    el.tierPop.classList.add("closing");
+    setTimeout(function(){
+      el.tierPop.classList.add("hidden");
+      el.tierPop.classList.remove("closing", "skip");
+      state.tierOpen = false;
+      scheduleEmoji();
+      onClose();
+    }, REDUCE_MOTION ? 0 : 300);
+  }
+  el.tierPop.onclick = skip;
+  el.tierBtn.onclick = close;
+
+  if (REDUCE_MOTION){ showBtn(); return; }
+  tierTimers = [setTimeout(showBtn, reward ? 2500 : 2000)];
+}
+
+// ---- Compteur de série : bonnes réponses d'affilée (un classement ne compte que s'il est réussi du 1er coup) ----
+function renderStreak(grew){
+  const n = state.streak;
+  el.streak.classList.toggle("hidden", n < 2);
+  el.streakN.textContent = String(n);
+  el.streak.classList.toggle("hot", n >= 5);
+  if (grew && n >= 2 && !REDUCE_MOTION){
+    el.streak.classList.remove("pop");
+    void el.streak.offsetWidth;
+    el.streak.classList.add("pop");
+  }
+}
+function streakHit(){
+  state.streak++;
+  if (state.streak > state.bestStreak) state.bestStreak = state.streak;
+  if ([3, 5, 8, 10, 15, 20].indexOf(state.streak) !== -1) state.streakNote = state.streak; // annoncée dans le chat
+  renderStreak(true);
+}
+function streakMiss(){
+  state.streak = 0;
+  renderStreak(false);
+}
+
+// ---- Journal de la partie (envoyé sur Discord à la fin) ----
+function slotNames(ep){
+  return state.slotItems.map(function(id){
+    const it = ep.items.filter(function(x){ return x.id === id; })[0];
+    return it ? it.name : "—";
+  });
+}
+function logChoice(ep, index, isRight, before){
+  state.log.push({ kind: ep.bonus ? "bonus" : "choice", label: epLabel(state.current), given: ep.options[index],
+                   right: ep.options[ep.correct], ok: isRight, before: before, after: state.score });
+}
+
+// Le palier le plus haut atteint avec le score FINAL (0 = aucun).
+function reachedTiers(){
+  return TIERS_SORTED.filter(function(t){ return state.score >= t.points; }).length;
+}
+function makeCode(){
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += abc.charAt(Math.floor(Math.random() * abc.length));
+  return "NFX-" + state.score + "-" + s;
+}
+
+// La pyramide : la base = 0 point, le sommet = le maximum. Chaque étage est un palier : doré si franchi
+// (celui qu'elle obtient est mis en avant), caché ("???") s'il est au-dessus de son score.
+function renderPyramid(){
+  el.pyramid.innerHTML = "";
+  const n = TIERS_SORTED.length;
+  if (!n) return;
+  const reached = reachedTiers();
+  const apex = document.createElement("div");
+  apex.className = "py-apex";
+  apex.textContent = MAX_POINTS + " points max";
+  el.pyramid.appendChild(apex);
+  const top = 46, step = (100 - top) / n; // le sommet fait 46 % de large, puis ça s'élargit jusqu'à la base (100 %)
+  function row(cls, width, num, label, pts){
+    const r = document.createElement("div");
+    r.className = "py-row " + cls;
+    r.style.width = width + "%";
+    const a = document.createElement("span"); a.className = "py-num"; a.textContent = num;
+    const b = document.createElement("span"); b.className = "py-label"; b.textContent = label;
+    const c2 = document.createElement("span"); c2.className = "py-pts"; c2.textContent = pts;
+    r.appendChild(a); r.appendChild(b); r.appendChild(c2);
+    el.pyramid.appendChild(r);
+  }
+  for (let i = n - 1; i >= 0; i--){
+    const t = TIERS_SORTED[i];
+    const gift = String(t.reward || "").trim();
+    const status = i === reached - 1 ? "got" : (i < reached - 1 ? "passed" : "locked");
+    row(status, top + (n - 1 - i) * step, String(i + 1), status === "locked" ? "???" : (gift || tierTitle(t, i)), t.points + " pts");
+  }
+  row("base", 100, "0", "Départ", "0 pt");
+}
+// Son cadeau (celui du plus haut palier atteint) et le message qui lui donne envie de rejouer.
+function renderGiftAndGap(){
+  const reached = reachedTiers();
+  const n = TIERS_SORTED.length;
+  el.endGift.classList.toggle("hidden", !(n && reached));
+  if (n && reached){
+    const t = TIERS_SORTED[reached - 1];
+    const gift = String(t.reward || "").trim();
+    el.endGift.innerHTML = "";
+    el.endGift.appendChild(document.createTextNode("Ton cadeau : "));
+    const b = document.createElement("b");
+    b.textContent = gift || tierTitle(t, reached - 1);
+    el.endGift.appendChild(b);
+  }
+  if (!n){ el.endGap.textContent = ""; return; }
+  const next = TIERS_SORTED[reached];
+  if (next){
+    const left = next.points - state.score;
+    el.endGap.textContent = "Plus que " + left + " point" + (left > 1 ? "s" : "") + " avant le prochain palier. C'est dommage ! 😈";
+  } else {
+    el.endGap.textContent = "Tous les paliers sont débloqués. Bravo " + state.nick + " !";
+  }
+}
+
+// ---- Envoi de la partie sur Discord (webhook) ----
+function durationText(){
+  const s = Math.max(0, Math.round((Date.now() - state.startedAt) / 1000));
+  return Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s";
+}
+function attemptLines(){
+  return state.log.map(function(e){
+    if (e.kind === "rank"){
+      let s = (e.ok ? "✅" : "❌") + " **" + e.label + "** · " + e.final.join(" > ");
+      if (e.tries.length){
+        s += " — " + (e.tries.length + (e.ok ? 1 : 0)) + " essais (ratés : " + e.tries.map(function(t){ return t.join(" > "); }).join(" | ") + ")";
+      }
+      return s;
+    }
+    if (e.kind === "bonus"){
+      return "🎲 **" + e.label + "** · " + e.given + " → " + (e.ok ? "✅ points doublés (" + e.before + " → " + e.after + ")"
+        : "❌ tout perdu (" + e.before + " → 0), bonne réponse : " + e.right);
+    }
+    if (e.kind === "bonus-skip") return "🎲 **Bonus** · " + e.reason;
+    return (e.ok ? "✅" : "❌") + " **" + e.label + "** · " + e.given + (e.ok ? "" : " — bonne réponse : " + e.right);
+  });
+}
+function buildAttemptPayload(){
+  const reached = reachedTiers();
+  const t = reached ? TIERS_SORTED[reached - 1] : null;
+  const gift = t ? (String(t.reward || "").trim() || tierTitle(t, reached - 1)) : "aucun";
+  let description = attemptLines().join("\n");
+  if (description.length > 3900) description = description.slice(0, 3890) + "\n…";
+  return {
+    username: "Netfloux",
+    content: "**" + state.nick + "** vient de finir une partie : **" + state.score + " pts** · code `" + state.code + "`",
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: "Partie terminée : " + state.score + " / " + MAX_POINTS,
+      description: description,
+      color: 16724557,
+      fields: [
+        { name: "Cadeau obtenu", value: gift, inline: true },
+        { name: "Code du ticket", value: "`" + state.code + "`", inline: true },
+        { name: "Série max", value: "x" + state.bestStreak, inline: true },
+        { name: "Durée", value: durationText(), inline: true }
+      ],
+      timestamp: new Date().toISOString()
+    }]
+  };
+}
+function sendAttempt(){
+  if (!DISCORD_WEBHOOK || state.attemptSent) return;
+  state.attemptSent = true;
+  let body;
+  try { body = JSON.stringify(buildAttemptPayload()); } catch (err) { return; }
+  function post(retry){
+    function again(){ if (retry) setTimeout(function(){ post(false); }, 4000); }
+    try {
+      fetch(DISCORD_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: body })
+        .then(function(r){ if (!r.ok) again(); })
+        .catch(again);
+    } catch (err) {}
+  }
+  post(true); // si ça échoue (réseau coupé...), un seul nouvel essai 4 s plus tard ; ça ne gêne jamais le jeu
+}
+
+// Quand elle appuie sur "suivant" : d'abord la célébration d'un éventuel palier atteint, puis la carte
+// de transition d'une nouvelle partie (s'il y en a une), puis l'épisode suivant.
+function nextEpisode(){
+  if (state.interludeOpen || state.tierOpen) return;
+  flushChat(); // les réactions programmées encore en attente s'affichent d'un coup (le chat d'ambiance, lui, continue)
+  chatFollow = true;
+  const tier = pendingTier();
+  if (tier !== -1){
+    showTierPop(tier, function(){
+      state.tiersUnlocked = tier + 1;
+      renderTiers({ just: tier });
+      nextEpisode(); // (au cas où un seul point ferait franchir 2 paliers d'un coup)
+    });
+    return;
+  }
+  const next = EPISODES[state.current + 1];
+  if (next && next.bonus && state.score < 1){ // rien à doubler : la question bonus n'est pas proposée
+    state.log.push({ kind: "bonus-skip", reason: "non proposé (0 point)" });
+    state.current++;
+    advanceEpisode();
+    return;
+  }
+  if (next && next.intro){
+    // la carte de transition passe d'abord ; elle peut avoir un 2e bouton qui saute la question (bonus)
+    showInterlude(next.intro, advanceEpisode, next.intro.skip ? skipEpisode : null);
+  } else {
+    advanceEpisode();
+  }
+}
+// Elle refuse la question bonus : on la saute et on garde ses points.
+function skipEpisode(){
+  state.log.push({ kind: "bonus-skip", reason: "refusé, elle garde ses " + state.score + " points" });
+  state.current++;   // l'épisode sauté
+  advanceEpisode();  // puis le suivant (ou l'écran de fin)
+}
+function advanceEpisode(){
+  chatFollow = true;
+  keepChatAtBottom(1200); // la nouvelle question change la mise en page : le chat reste en bas
+  state.current++;
+  if (state.current >= EPISODES.length){
+    showEnd();
+  } else {
+    renderEpisode();
+  }
+}
+
+function showEnd(){
+  stopEmoji();
+  stopAmbient();
+  el.video.pause();            // la dernière vidéo ne continue pas en fond sur l'écran de fin
+  stopLimitWatch();
+  state.stopAt = null;
+  state.code = makeCode();
+  el.tkName.textContent = state.nick;
+  el.tkCode.textContent = state.code;
+  el.tkDate.textContent = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  el.scoreLine.textContent = String(state.score);
+  el.scoreMax.textContent = "/ " + MAX_POINTS + " points";
+  renderPyramid();
+  renderGiftAndGap();
+  el.finalNote.textContent = FINAL_MESSAGE;
+  showScreen("end");
+  sendAttempt();
+}
+
+// Remet tout à zéro et lance (ou relance, via "Rejouer") la saison depuis
+// le début. state.viewers démarre entre 300 et 390 spectateurs.
+function startQuiz(){
+  stopEmoji();
+  stopAmbient();
+  cancelChat();
+  stopLimitWatch();
+  interludeTimers.forEach(clearTimeout);
+  interludeTimers = [];
+  el.interlude.classList.add("hidden");
+  state.interludeOpen = false;
+  tierTimers.forEach(clearTimeout);
+  tierTimers = [];
+  if (stopConfetti){ stopConfetti(); stopConfetti = null; }
+  el.tierPop.classList.add("hidden");
+  state.tierOpen = false;
+  el.video.pause();
+  state.current = 0;
+  state.score = 0;
+  state.tiersUnlocked = 0;
+  state.streak = 0;
+  state.bestStreak = 0;
+  state.streakNote = 0;
+  state.log = [];
+  state.bonusState = "";
+  state.attemptSent = false;
+  state.startedAt = Date.now();
+  state.nick = randomNick();
+  renderStreak(false);
+  renderTiers();
+  state.viewers = 300 + Math.floor(Math.random()*90);
+  el.chatList.innerHTML = "";
+  chatFollow = true;
+  keepChatAtBottom(1200);
+  el.reactionLayer.innerHTML = "";
+  el.viewerCount.textContent = state.viewers.toLocaleString("fr-FR") + " spectateurs";
+  showScreen("quiz");
+  addChatRow(HOST_NAME, OPENING_MESSAGE, false);
+  renderEpisode();
+  scheduleEmoji();
+  startAmbient();
+}
+
+// Branchement des boutons aux fonctions ci-dessus.
+el.startBtn.addEventListener("click", startQuiz);
+el.nextBtn.addEventListener("click", nextEpisode);
+el.rankValidateBtn.addEventListener("click", revealRankResult);
+el.soundNudge.addEventListener("click", function(){
+  state.soundOn = true;
+  state.soundConfirm = true;
+  el.video.muted = false;
+  const p = el.video.play();
+  if (p && p.catch) p.catch(function(){
+    // le navigateur refuse encore : on revient à la vidéo muette (la bulle redevient l'invitation)
+    el.video.muted = true;
+    state.soundOn = false;
+    state.soundConfirm = false;
+    updateSoundNudge();
+  });
+  playChime();
+  updateSoundNudge();
+  clearTimeout(soundConfirmTimer);
+  soundConfirmTimer = setTimeout(function(){ state.soundConfirm = false; updateSoundNudge(); }, 2600);
+});
+el.video.addEventListener("volumechange", updateSoundNudge); // ex: elle coupe/remet le son avec les contrôles de la vidéo
+el.replayBtn.addEventListener("click", startQuiz);
+// Lecture / pause de l'extrait. Si l'extrait est arrivé à sa limite, appuyer le relance depuis le début.
+function togglePreviewPlay(){
+  if (state.answered || state.stopAt == null) return;
+  if (el.video.paused){
+    if (el.video.currentTime >= state.stopAt - 0.05) el.video.currentTime = 0;
+    showReplay(false);
+    playPreview();
+  } else {
+    el.video.pause();
+  }
+}
+el.videoWrap.addEventListener("click", togglePreviewPlay); // tapoter la vidéo (ou son bouton "Revoir")
+el.scrubPlay.addEventListener("click", togglePreviewPlay); // ou le bouton lecture/pause sous la vidéo
+
+// Se déplacer dans l'extrait avec la barre : de 0 à la limite, jamais plus loin.
+el.scrub.addEventListener("input", function(){
+  if (state.answered || state.stopAt == null) return;
+  scrubbing = true;
+  el.video.currentTime = Math.min(parseFloat(el.scrub.value) || 0, state.stopAt);
+  showReplay(false);
+  checkLimit(); // si elle va jusqu'au bout de la barre : la vidéo s'arrête sur la limite
+  updateProgress();
+});
+function endScrub(){ scrubbing = false; updateProgress(); }
+["change", "pointerup", "pointercancel", "touchend", "blur"].forEach(function(name){
+  el.scrub.addEventListener(name, endScrub);
+});
+
+el.video.addEventListener("play", function(){
+  showReplay(false);
+  updateProgress();
+  if (!limitRaf && state.stopAt != null && !state.answered) limitRaf = requestAnimationFrame(limitTick);
+});
+el.video.addEventListener("pause", updateProgress); // met l'icône lecture/pause à jour
+el.video.addEventListener("timeupdate", checkLimit);
+el.video.addEventListener("seeking", function(){ // impossible d'aller plus loin que la limite avant de répondre
+  if (!state.answered && state.stopAt != null && el.video.currentTime > state.stopAt) el.video.currentTime = state.stopAt;
+});
+el.video.addEventListener("ended", function(){ if (!state.answered && state.stopAt != null) showReplay(true); }); // vidéo plus courte que la limite
+el.video.addEventListener("loadedmetadata", applyVideoRatio);
+window.addEventListener("resize", layoutSoundNudge);
+
+})();
+</script>
+
+</body>
+</html>
